@@ -60,7 +60,7 @@ static void insert_after_anchor(ListNode_t *anchor, ListNode_t *node){
     ++node->container->number_of_node;
 }
 
-static void remove_node(ListNode_t *node){
+void remove_node(ListNode_t *node){
     List_t *list = node->container;
 
     assert(list != NULL);
@@ -134,6 +134,6 @@ bool less(u32 a, u32 b){
     return a < b;
 }
 
-bool more(u32 a, u32 b){
+bool greater(u32 a, u32 b){
     return a > b;
 }

@@ -1,6 +1,7 @@
 #include <common/interrupt.h>
 #include <rdix/kernel.h>
 #include <rdix/syscall.h>
+#include <rdix/task.h>
 
 #define SYSCALL_NUM 64
 
@@ -30,4 +31,5 @@ void syscall_init(){
     }
     
     syscall_table[SYS_NR_TEST] = sys_test;
+    syscall_table[SYS_NR_SLEEP] = task_sleep;
 }

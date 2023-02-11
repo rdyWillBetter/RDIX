@@ -160,8 +160,8 @@ syscall_handle:
     pusha
 
     push 0x80;第四个参数
-    push edx
-    push ecx
+    push edx;第三个参数
+    push ecx;第二个参数
     push ebx;第一个参数
 
     call [syscall_table + eax * 4]

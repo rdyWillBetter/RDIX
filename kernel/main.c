@@ -11,51 +11,16 @@
 #include <rdix/multiboot2.h>
 #include <common/list.h>
 
-/*
-bool cmp(u32 a, u32 b){
-    return a < b;
-}
-
-void list_test(){
-    List_t *list = new_list();
-
-    for (int i = 0; i < 10; ++i){
-        ListNode_t *node = new_listnode(current_task(), i);
-        list_insert(list, node, cmp);
-    }
-
-    printk("list->number_of_node = %d\n", list->number_of_node);
-    BMB;
-    for (ListNode_t *node = list->end.next;\
-        node != &list->end;\
-        node = node->next){
-        printk("node->value = %d\n", node->value);
-        printk("node->owner = %#p\n", node->owner);
-        printk("&current_task_TCB = %#p\n", current_task());
-        printk("node->container = %#p\n", node->container);
-        printk("&list = %#p\n", list);
-    }
-}
-*/
-
-void handle_a(void){
+void handle_test(){
     while(true){
-        printk("a");
+        printk("test\n");
+        sleep(1000);
     }
 }
-void handle_b(void){
+void handle_2(){
     while(true){
-        printk("b");
-    }
-}
-void handle_c(void){
-    while(true){
-        printk("c");
-    }
-}
-void handle_d(void){
-    while(true){
-        printk("d");
+        printk("2\n");
+        sleep(1000);
     }
 }
 
@@ -74,9 +39,8 @@ void kernel_init(u32 magic, u32 info){
     task_init();
     interrupt_init();
 
-    task_create(handle_a,"a",3,0);
-    task_create(handle_b,"b",3,0);
-    task_create(handle_c,"c",3,0);
-    task_create(handle_d,"d",3,0);
+    set_IF(true);
     
+    task_create(handle_test, "test", 3, 0);
+    task_create(handle_2, "2", 3, 0);
 }

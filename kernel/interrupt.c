@@ -138,13 +138,14 @@ static void idt_init(){
     for (size_t i = INTEL_INT_RESERVED; i < INT_SIZE; ++i){
         interrupt_func_table[i] = default_exception;
     }
-
-    /* bug 记录
+    /* ===============================================================================
+     * bug 记录
      * 因为将 syscall_handle 声明的时候写成函数指针的形式（void (*syscall_handle)(void)）
      * (u32)syscall_handle 的值就变成了解引用的值 *syscall_handle
      * 不知道为什么这里没有解引用，但是编译器自动解引用了
      * 应该是函数指针的特性问题
-     * 待学习 */
+     * 待学习
+     * =============================================================================== */
     gate_t *syscall_entry = &idt_table[0x80];
     syscall_entry->offset_l = (u32)syscall_handle;
     syscall_entry->offset_h = ((u32)syscall_handle >> 16);
@@ -215,6 +216,4 @@ void interrupt_init(){
     clock_init();
     //rtc_init();
     keyboard_init();
-
-    asm volatile("sti");
 }
