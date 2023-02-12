@@ -190,6 +190,9 @@ int vsprintf(char *buf, const char *fmt, va_list arg){
             s = va_arg(arg, char *);
             while (*s) *str++ = *s++;
             break;
+        case 'c':
+            *str++ = va_arg(arg, char);
+            break;
         default:
             break;
         }

@@ -10,6 +10,8 @@ port_inb:
     mov edx,[ss:ebp + 8]
     in al,dx
 
+    call delay
+
     leave
     ret
 
@@ -19,6 +21,8 @@ port_inw:
 
     mov edx,[ss:ebp + 8]
     in ax,dx
+
+    call delay
 
     leave
     ret
@@ -31,6 +35,8 @@ port_outb:
     mov eax,[ss:ebp + 12]
     out dx,al
 
+    call delay
+
     leave
     ret
 
@@ -42,5 +48,14 @@ port_outw:
     mov eax,[ss:ebp + 12]
     out dx,ax
 
+    call delay
+
     leave
+    ret
+
+delay:
+    nop
+    nop
+    nop
+    
     ret

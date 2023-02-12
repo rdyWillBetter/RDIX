@@ -19,4 +19,5 @@ void printk(const char *fmt, ...){
 
     /* 屏显函数中已经设置关中断，无需重复设置 */
     console_put_string(buf, WORD_TYPE_DEFAULT);
+
 }

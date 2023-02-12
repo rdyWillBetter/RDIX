@@ -31,6 +31,6 @@ u16 get_screen_position();
 void set_screen_position(u16 screen_position);
 void console_put_char(char ch, u8 type);
 void console_put_string(const char* str, u8 type);
-u16 scroll_up(u16 cursor_position);
+u16 scroll_up();
 
 #endif

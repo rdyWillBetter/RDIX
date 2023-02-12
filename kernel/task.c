@@ -151,31 +151,41 @@ void schedule(){
     task_switch(current->owner, next->owner);
 }
 
-/* TCB 中状态值没有修改 */
-/* 若 task == NULL，代表阻塞当前任务 */
-void block(ListNode_t *task){
-    assert(!get_IF());
+/* TCB 中状态值没有修改
+ * 若 task == NULL，代表阻塞当前任务
+ * block 是将任务压入列表顶部 */
+void block(List_t *list, ListNode_t *task){
+    bool IF_stat = get_IF();
+    set_IF(false);
 
     if (!task){
-        list_push(block_list, running_task);
+        list_push(list, running_task);
         schedule();
     }
     else{
         assert(task->container);
         remove_node(task);
-        list_push(block_list, task);
+        list_push(list, task);
     }
+
+    set_IF(IF_stat);
 }
 
+/* 如果输入节点为空，那么直接弹出阻塞链表尾部节点
+ * 并将其加入就绪队列 */
 void unblock(ListNode_t *task){
-    assert(!get_IF());
+    bool IF_stat = get_IF();
+    set_IF(false);
 
-    if (task)
+    if (!task)
         task = list_popback(block_list);
 
     remove_node(task);
 
     list_push(ready_list, task);
+    ((TCB_t*)task->owner)->state = TASK_READY;
+
+    set_IF(IF_stat);
 }
 
 /* 调用软中断后好像 IF 位也会自动清 0 */

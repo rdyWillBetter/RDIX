@@ -17,6 +17,8 @@ void *malloc(size_t requist_size);
 void free_s(void *obj, size_t size);
 #define free(obj) free_s(obj, 0)
 
+void keyboard_read(char *buf, size_t count);
+
 #define BMB asm volatile("xchgw %bx, %bx") // bochs magic breakpoint
 #define DEBUGK(fmt, args...) debugk(__BASE_FILE__, __LINE__, fmt, ##args)
 #define PANIC(fmt, args...) panic(__BASE_FILE__, __LINE__, fmt, ##args)

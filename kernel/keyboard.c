@@ -2,6 +2,10 @@
 #include <common/io.h>
 #include <rdix/kernel.h>
 #include <common/console.h>
+#include <common/queue.h>
+#include <common/list.h>
+#include <rdix/mutex.h>
+#include <rdix/task.h>
 
 #define KEYBOARD_DATA_POAT 0x60
 #define KETBOARD_CTRL_POAT 0x64
@@ -9,6 +13,12 @@
 #define INV 0 //不可见字符
 
 #define CODE_PRINT_SCREEN_DOWN 0xb7
+
+#define KEY_BUF_SIZE 256
+
+List_t *waiter;
+que_char_t *key_buf;
+mutex_t *lock;
 
 //扫描码
 typedef enum
@@ -264,14 +274,34 @@ void keyboard_hander(u32 int_num, u32 code){
 
     if (ch == INV)  goto End;
 
-    console_put_char(ch, WORD_TYPE_DEFAULT);
+    que_push(key_buf, ch);
+
+    /* 不能放在 End 之后 */
+    if (!list_isempty(waiter))
+        unblock(waiter->end.next);
 End:
     sent_eoi(int_num);
+}
+
+void keyboard_read(char *buf, size_t count){
+    mutex_lock(lock);
+
+    while (count--){
+        if (que_isempty(key_buf))
+            block(waiter, NULL);
+        *(buf++) = que_pop(key_buf);
+    }
+
+    mutex_unlock(lock);
 }
 
 void keyboard_init(){
     capslock_state = false;
     extcode_state = false;
+
+    key_buf = new_char_que(KEY_BUF_SIZE);
+    waiter = new_list();
+    lock = new_mutex();
     
     set_int_handler(IRQ1_KEYBOARD, (void *)keyboard_hander);
     set_int_mask(IRQ1_KEYBOARD, true);  //打开键盘中断

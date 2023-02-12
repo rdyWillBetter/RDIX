@@ -3,6 +3,8 @@
 #include <common/type.h>
 #include <common/string.h>
 #include <common/interrupt.h>
+#include <common/assert.h>
+#include <rdix/kernel.h>
 
 /* 值为 0 的全局变量和未初始化的全局变量是一样的，都是放在 bss 段。值都是随机的
  * 因此这样的全局变量一定要初始化后才能使用 */
@@ -32,19 +34,19 @@ u16 get_screen_position(){
 }
 
 void set_cursor_position(u16 cursor_position){
-    u16 new_p = cursor_position;
     if (cursor_position >= SPosition + SCREEN_ROW_COUNT * SCREEN_COL_COUNT){
-        new_p = scroll_up(cursor_position);
+        cursor_position = scroll_up();
     }
 
     port_outb(CRT_ADDR_REG,CRT_CURSOR_H);
-    port_outb(CRT_DATA_REG,new_p >> 8);
+    port_outb(CRT_DATA_REG,cursor_position >> 8);
 
     port_outb(CRT_ADDR_REG,CRT_CURSOR_L);
-    port_outb(CRT_DATA_REG,new_p);
+    port_outb(CRT_DATA_REG,cursor_position);
 }
 
 void set_screen_position(u16 screen_position){
+    assert(!(screen_position % 80));
 
     port_outb(CRT_ADDR_REG,CRT_SCREEN_H);
     port_outb(CRT_DATA_REG,screen_position >> 8);
@@ -54,8 +56,11 @@ void set_screen_position(u16 screen_position){
 }
 
 void console_clean(){
-    set_screen_position(0);
-    set_cursor_position(0);
+    CPosition = 0;
+    SPosition = 0;
+
+    set_screen_position(SPosition);
+    set_cursor_position(CPosition);
 
     u16 *vedio = (u16 *)VEDIO_BASE_ADDR;
     for (u16 i = 0; i < FULL_SCREEN_SIZE; ++i){
@@ -65,9 +70,6 @@ void console_clean(){
 
 void console_init(){
     console_clean();
-
-    CPosition = get_cursor_position();
-    SPosition = get_screen_position();
 }
 
 void proc_lf(){
@@ -113,24 +115,27 @@ void console_put_string(const char* str, u8 type){
     }
 }
 
-u16 scroll_up(u16 cursor_position){
+u16 scroll_up(){
     if (VEDIO_BASE_ADDR + (SPosition + FULL_SCREEN_SIZE) * 2 \
-     < VEDIO_END_ADDR - SCREEN_ROW_COUNT * 2){
+     < VEDIO_END_ADDR - SCREEN_ROW_COUNT * 4){
         SPosition += SCREEN_ROW_COUNT;
     }
     else{
         memcpy((void *)VEDIO_BASE_ADDR, \
         (const void *)(VEDIO_BASE_ADDR + (SPosition + SCREEN_ROW_COUNT) * 2), \
         (size_t)((FULL_SCREEN_SIZE - SCREEN_ROW_COUNT) * 2));
+        
         SPosition = 0;
-        cursor_position = FULL_SCREEN_SIZE - SCREEN_ROW_COUNT;
-        CPosition = cursor_position; //注意CPosition的修改，函数耦合过高，待优化
+        CPosition = FULL_SCREEN_SIZE - SCREEN_ROW_COUNT;
+        //注意CPosition的修改，函数耦合过高，待优化
     }
+    
     set_screen_position(SPosition);
+    
     u16 *earse = (u16 *)(VEDIO_BASE_ADDR + (SPosition + FULL_SCREEN_SIZE - SCREEN_ROW_COUNT) * 2);
     for (int i = 0; i < SCREEN_ROW_COUNT; ++i){
         earse[i] = BLANK;
     }
 
-    return cursor_position;
+    return CPosition;
 }

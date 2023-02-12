@@ -51,7 +51,7 @@ ListNode_t *current_task();
 void schedule();
 char *task_name();
 ListNode_t *task_create(task_program handle, const char *name, u32 priority, u32 uid);
-void block(ListNode_t *task);
+void block(List_t *list, ListNode_t *task);
 void unblock(ListNode_t *task);
 void task_sleep(time_t time);
 void weakup();
