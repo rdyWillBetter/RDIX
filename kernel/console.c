@@ -109,10 +109,21 @@ void console_put_char(char ch, u8 type){
     set_IF(IF_stat);
 }
 
+/* =============================================
+ * bug 调试记录
+ * console_put_string 是调用了一系列的 console_put_char
+ * 意味着每个 console_put_char 应当连续执行。如果中间由于竞争问题执行了其他任务的 console_put_char
+ * 就会导致打印的字符串不连续，所以 console_put_string 是一个互斥事件
+ * ============================================= */
 void console_put_string(const char* str, u8 type){
+    bool IF_stat = get_IF();
+    set_IF(false);
+
     for (int i = 0; str[i] != '\0'; ++i){
         console_put_char(str[i], type);
     }
+
+    set_IF(IF_stat);
 }
 
 u16 scroll_up(){

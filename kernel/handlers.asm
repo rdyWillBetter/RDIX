@@ -1,7 +1,7 @@
 [bits 32]
 [section .text]
 
-global handler_table
+global handler_table, interrupt_exit
 extern interrupt_func_table
 
 %macro SYS_EXCEPTION 2
@@ -28,6 +28,7 @@ interrupt_handler:
     call [interrupt_func_table + eax * 4]
     add esp,8
 
+interrupt_exit:
     popa
     pop gs
     pop fs

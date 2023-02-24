@@ -15,19 +15,29 @@
 mutex_t *lock;
 
 void handle_1(){
-    char buf[10];
+    char ch;
     while (true){
-        keyboard_read(buf, 5);
-        buf[5] = '\0';
-        printk("[handle_1 get string] %s\n", buf);
+        keyboard_read(&ch, 1);
+        printk("%c", ch);
+    }
+}
+
+void user_1(){
+    while (true){
+        BMB;
+
+        asm volatile(
+            "in $0x92, %ax\n"
+        );
+
+        BMB;
     }
 }
 
 void handle_2(){
     char buf[10];
     while (true){
-        keyboard_read(buf, 5);
-        buf[5] = '\0';
+        keyboard_read(buf, 1);
         printk("[handle_2 get string] %s\n", buf);
     }
 }
@@ -49,6 +59,7 @@ void kernel_init(u32 magic, u32 info){
 
     set_IF(true);
     
-    task_create(handle_1, "test", 3, 0);
-    task_create(handle_2, "test", 3, 0);
+    task_create(handle_1, NULL, "test", 5, 0);
+    user_task_create(user_1, "user_1", 3);
+    //task_create(handle_2, "test", 3, 0);
 }

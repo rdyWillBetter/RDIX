@@ -43,4 +43,8 @@ void *alloc_kpage(u32 count);
 /* 释放的是虚拟内存，不是物理内存 */
 void free_kpage(void *vaddr, u32 count);
 
+/* cr3 寄存器存放页目录物理地址 */
+u32 get_cr3();
+u32 set_cr3(u32 pde);
+
 #endif

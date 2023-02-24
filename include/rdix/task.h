@@ -5,10 +5,14 @@
 #include <common/bitmap.h>
 #include <common/list.h>
 
+#define KERNEL_UID 0
+#define USER_UID 3
+
 #define TASK_NAME_LEN 16    //任务名长度，单位 u32
 #define KERNEL_TCB 0x18000
 /* 任务函数句柄 */
 typedef void (*task_program)(void);
+typedef void (*user_target_t)(void);
 
 /* 进程状态 */
 typedef enum task_state_t
@@ -46,14 +50,46 @@ typedef struct task_stack_t{
     void (*eip)(void);
 } task_stack_t;
 
+/* 用户程序在内核态的栈，用于从内核态切换到用户态 */
+typedef struct intr_frame_t
+{
+    u32 edi;
+    u32 esi;
+    u32 ebp;
+    // 虽然 pushad 把 esp 也压入，但 esp 是不断变化的，所以会被 popad 忽略
+    u32 esp_dummy;
+
+    u32 ebx;
+    u32 edx;
+    u32 ecx;
+    u32 eax;
+
+    u32 gs;
+    u32 fs;
+    u32 es;
+    u32 ds;
+
+    u32 vector0;
+
+    u32 error;
+
+    /* 在内核态切换到用户态时，以下这五个会自动恢复 */
+    u32 eip;
+    u32 cs;
+    u32 eflags;
+    u32 esp;
+    u32 ss;
+} intr_frame_t;
+
 void task_init(void);
 ListNode_t *current_task();
 void schedule();
 char *task_name();
-ListNode_t *task_create(task_program handle, const char *name, u32 priority, u32 uid);
+ListNode_t *task_create(task_program handle, void * param,  const char *name, u32 priority, u32 uid);
 void block(List_t *list, ListNode_t *task);
 void unblock(ListNode_t *task);
 void task_sleep(time_t time);
 void weakup();
+void *user_task_create(user_target_t target, const char *name, u32 priority);
 
 #endif

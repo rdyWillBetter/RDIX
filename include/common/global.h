@@ -56,6 +56,17 @@
 /* 该段是否被访问过，A=1 访问过，=0 未访问过 */
 #define GDT_ENTRY_TYPE_A 0x100
 
+typedef enum SEG_IDX{
+    KERNEL_CODE_SEG = 1,
+    KERNEL_DATA_SEG,
+    
+    /* TSS 描述符中，S = 0，type = 10B1
+     * B位表示 busy，B 位为 0 表示任务不繁忙 */
+    KERNEL_TSS_SEG,
+    USER_CODE_SEG,
+    USER_DATA_SEG
+} SEG_IDX;
+
 typedef struct descriptor{
     u16 limit_low; //段界限 0~15 位
     u32 base_low : 24; //段基址 0~23 位
@@ -71,16 +82,53 @@ typedef struct descriptor{
     u8 base_high; //基地址 24~31 位
 } _packed gdt_descriptor;
 
+/*
 typedef struct gdt_selector{
     u8 RPL : 2;
     u8 TI : 1; //0 表示从 LDT 加载段寄存器，1 表示从 GDT 加载段寄存器
     u16 index : 13;
 } _packed selector;
+*/
+
+typedef unsigned short selector;
 
 typedef struct gdt_pointer{
     u16 limit; //limit == sizeof(gdt) - 1
     u32 base;
 } _packed gdt_pointer;
+
+typedef struct tss_t
+{
+    u32 backlink; // 前一个任务的链接，保存了前一个任状态段的段选择子
+    u32 esp0;     // ring0 的栈顶地址
+    u32 ss0;      // ring0 的栈段选择子
+    u32 esp1;     // ring1 的栈顶地址
+    u32 ss1;      // ring1 的栈段选择子
+    u32 esp2;     // ring2 的栈顶地址
+    u32 ss2;      // ring2 的栈段选择子
+    u32 cr3;
+    u32 eip;
+    u32 flags;
+    u32 eax;
+    u32 ecx;
+    u32 edx;
+    u32 ebx;
+    u32 esp;
+    u32 ebp;
+    u32 esi;
+    u32 edi;
+    u32 es;
+    u32 cs;
+    u32 ss;
+    u32 ds;
+    u32 fs;
+    u32 gs;
+    u32 ldtr;          // 局部描述符选择子
+    u16 trace : 1;     // 如果置位，任务切换时将引发一个调试异常
+    u16 reversed : 15; // 保留不用
+    u16 iobase;        // I/O 位图基地址，16 位从 TSS 到 IO 权限位图的偏移
+    u32 ssp;           // 任务影子栈指针
+} _packed tss_t;
 
 void gdt_init();
 

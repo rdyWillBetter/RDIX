@@ -168,11 +168,11 @@ static void memory_init(u32 magic, u32 info){
 }
 
 /* cr3 寄存器用于存放页目录索引 */
-static _inline u32  get_cr3(){
+_inline u32 get_cr3(){
     asm volatile("movl %cr3, %eax");
 }
 
-static _inline u32  set_cr3(u32 pde){
+_inline u32 set_cr3(u32 pde){
     asm volatile("movl %%eax, %%cr3"::"a"(pde));
 }
 

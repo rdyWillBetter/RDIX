@@ -6,6 +6,7 @@
 #include <common/list.h>
 #include <rdix/mutex.h>
 #include <rdix/task.h>
+#include <common/assert.h>
 
 #define KEYBOARD_DATA_POAT 0x60
 #define KETBOARD_CTRL_POAT 0x64
@@ -274,6 +275,7 @@ void keyboard_hander(u32 int_num, u32 code){
 
     if (ch == INV)  goto End;
 
+    assert(!que_isfull(key_buf));
     que_push(key_buf, ch);
 
     /* 不能放在 End 之后 */
@@ -283,16 +285,27 @@ End:
     sent_eoi(int_num);
 }
 
-void keyboard_read(char *buf, size_t count){
+size_t keyboard_read(char *buf, size_t count){
     mutex_lock(lock);
-
-    while (count--){
+    
+    for (int i = 0; i < count; ++i){
         if (que_isempty(key_buf))
             block(waiter, NULL);
-        *(buf++) = que_pop(key_buf);
+
+        /* 在 que_pop 的过程中操作了 key_buf
+        * 而在键盘中断函数中也可能操作该全局变量
+        * 并且键盘中断程序不会被 锁 阻挡，因此需要单独关中断 */
+        bool IF_stat = get_IF();
+        set_IF(false);
+
+        buf[i] = que_pop(key_buf);
+
+        set_IF(IF_stat);
     }
 
     mutex_unlock(lock);
+
+    return count;
 }
 
 void keyboard_init(){

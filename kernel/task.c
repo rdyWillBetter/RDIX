@@ -5,11 +5,14 @@
 #include <common/assert.h>
 #include <common/list.h>
 #include <common/clock.h>
+#include <common/global.h>
+#include <common/interrupt.h>
 
 #define TASK_NUM 64
 
 extern bitmap_t v_bit_map;
 extern time_t jiffies;
+extern tss_t tss;
 
 static TCB_t *task_table[TASK_NUM];
 
@@ -88,7 +91,7 @@ char *task_name(){
     return ((TCB_t *)running_task->owner)->name;
 }
 
-ListNode_t *task_create(task_program handle, const char *name, u32 priority, u32 uid){
+ListNode_t *task_create(task_program handle, void *param, const char *name, u32 priority, u32 uid){
     TCB_t *tcb = (TCB_t *)alloc_kpage(1);
     task_stack_t *stack = (task_stack_t *)((u32)tcb + PAGE_SIZE - sizeof(task_stack_t));
     ListNode_t *node = new_listnode(tcb, priority);
@@ -104,7 +107,8 @@ ListNode_t *task_create(task_program handle, const char *name, u32 priority, u32
             PANIC("Can not create more task!\n");
     }
     
-    stack->edi = 0x1;
+    /* edi 为指向传入参数结构体的指针 */
+    stack->edi = param;
     stack->esi = 0x2;
     stack->ebx = 0x3;
     stack->ebp = 0x4;
@@ -131,24 +135,87 @@ ListNode_t *task_create(task_program handle, const char *name, u32 priority, u32
 void schedule(){
     ListNode_t *next = list_popback(ready_list);
     ListNode_t *current = running_task;
+    TCB_t *next_tcb = (TCB_t *)next->owner;
+    TCB_t *current_tcb = (TCB_t *)current->owner;
 
     if (next == NULL)
         return;
 
     running_task = next;
 
-    assert(((TCB_t *)next->owner)->magic == RDIX_MAGIC);
+    assert(next_tcb->magic == RDIX_MAGIC);
 
-    ((TCB_t *)next->owner)->state = TASK_RUNNING;
+    next_tcb->state = TASK_RUNNING;
 
     /* 调用 block 或 sleep 后当前任务很可能已经被加入到对应的链表中
      * 因此这里就不能再把它加入到 ready链表 中 */
     if (current->container == NULL){
-        ((TCB_t *)current->owner)->state = TASK_READY;
+        current_tcb->state = TASK_READY;
         list_push(ready_list, current);
     }
 
+    if (next_tcb->pde != get_cr3()){
+        set_cr3(next_tcb->pde);
+    }
+
+    if (next_tcb->uid == USER_UID){
+        /* tss.esp0 应当是该用户任务的内核栈的初始地址，这里想一想有没有更好的办法 */
+        tss.esp0 = ((u32)next_tcb->stack & PAGE_SIZE) + PAGE_SIZE;
+    }
+
     task_switch(current->owner, next->owner);
+}
+
+/* 参数存放在 edi 中 */
+static void *kernel_to_user(){
+    user_target_t *target;
+    void *user_stack = alloc_kpage(1) + PAGE_SIZE;//todo
+    intr_frame_t iframe;
+    void *kernel_stack = &iframe;
+
+    asm volatile(
+        "movl %%edi,%0\n"
+        :"=m"(target)
+    );
+
+    /* 用户进程的虚拟内存空间位图以及页表待初始化 */
+    /*
+    current->vmap = (bitmap_t *)malloc(sizeof(bitmap_t));
+    bitmap_init(current->vmap, alloc_kpage(1), PAGE_SIZE, 0x800);
+
+    current->pde
+    */
+
+    iframe.gs = 0;
+    iframe.ds = (USER_DATA_SEG << 3) | DPL_USER;
+    iframe.es = (USER_DATA_SEG << 3) | DPL_USER;
+    iframe.fs = (USER_DATA_SEG << 3) | DPL_USER;
+    iframe.ss = (USER_DATA_SEG << 3) | DPL_USER;
+    iframe.cs = (USER_CODE_SEG << 3) | DPL_USER;
+
+    iframe.error = RDIX_MAGIC;
+    iframe.eip = (u32)*target;
+    iframe.eflags = (0 << 12 | 0b10 | 1 << 9);
+    iframe.esp = user_stack;
+
+    /* 修改内核栈指针 */
+    asm volatile(
+        "movl %0, %%esp\n"
+        "jmp interrupt_exit\n"
+        :
+        :"m"(kernel_stack)
+    );
+}
+
+void *user_task_create(user_target_t target, const char *name, u32 priority){
+
+    /* target 是存放在栈中的，user_task_create 是会返回的
+     * 一旦函数返回 target 内容就被释放了，因此需要额外创建一个容器存放 target */
+    user_target_t *container = (user_target_t *)malloc(sizeof(user_target_t));
+    /* 该进程结束时应当回收内存 */
+    *container = target;
+
+    task_create((task_program)kernel_to_user, (void *)container, name, priority, USER_UID);
 }
 
 /* TCB 中状态值没有修改

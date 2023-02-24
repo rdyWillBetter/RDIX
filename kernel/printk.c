@@ -14,10 +14,8 @@ void printk(const char *fmt, ...){
 
     vsprintf(buf, fmt, arg);
     va_end(arg);
-
     set_IF(IF_state);
 
     /* 屏显函数中已经设置关中断，无需重复设置 */
     console_put_string(buf, WORD_TYPE_DEFAULT);
-
 }
