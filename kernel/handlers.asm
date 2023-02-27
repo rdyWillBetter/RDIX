@@ -157,9 +157,10 @@ syscall_handle:
     push ds
     push es
     push fs
-    push gs
+    push gs  
     pusha
 
+    ;系统调用号 0x80
     push 0x80;第四个参数
     push edx;第三个参数
     push ecx;第二个参数

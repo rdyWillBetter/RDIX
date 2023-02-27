@@ -8,7 +8,6 @@
 #define RDIX_MAGIC 0x01011017
 
 void printk(const char *fmt, ...);
-int vsprintf(char *buf, const char *fmt, va_list arg);
 
 void debugk(const char *file, const int line, const char *fmt, ...);
 void panic(const char *file, const int line, const char *fmt, ...);

@@ -21,4 +21,14 @@ typedef u32 size_t;
 typedef void *handler_t;
 typedef u32 time_t;
 
+typedef int int32;
+
+typedef int32 fd_t;
+
+typedef enum std_fd_t{
+    stdin,
+    stdout,
+    stderr,
+} std_fd_t;
+
 #endif

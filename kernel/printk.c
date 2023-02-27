@@ -2,6 +2,7 @@
 #include <common/stdarg.h>
 #include <common/console.h>
 #include <common/interrupt.h>
+#include <common/stdio.h>
 
 char buf[1024];
 

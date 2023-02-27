@@ -36,16 +36,13 @@ int bitmap_set(bitmap_t *map, u32 idx, bool status){
     
     idx -= map->offset;
 
-    /* 只有 bitmap_set 需要关中断，防止任务竞争 */
-    bool IF_stat = get_IF();
-    set_IF(false);
-
+    /* 这里不需要关中断，bitmap 是通用的库，如果关中断的话就变成了专用库
+     * 只需要在 alloc_kpage 和 free_kpage 里关中断就行了 */
     if (status)
         map->start[idx / 8] |= (1 << (idx % 8));
     else
         map->start[idx / 8] &= (~(1 << (idx % 8)));
 
-    set_IF(IF_stat);
     return 0;
 }
 

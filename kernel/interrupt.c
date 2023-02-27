@@ -4,6 +4,8 @@
 #include <common/clock.h>
 #include <common/time.h>
 #include <common/string.h>
+#include <common/global.h>
+#include <rdix/memory.h>
 
 #define INT_SIZE 0x30
 #define IDT_SIZE 256
@@ -106,6 +108,8 @@ static void sys_exception(
     printk("       ES : 0x%08X\n", es);
     printk("       fS : 0x%08X\n", fs);
     printk("       GS : 0x%08X\n", gs);
+    printk("      EAS : 0x%08X\n", eax);
+    printk("      ESP : 0x%08X\n", esp);
     // 阻塞
     while(true);
 }
@@ -135,6 +139,9 @@ static void idt_init(){
     for (size_t i = 0; i < INTEL_INT_RESERVED; ++i){
         interrupt_func_table[i] = sys_exception;
     }
+
+    interrupt_func_table[0xe] = page_fault;
+
     for (size_t i = INTEL_INT_RESERVED; i < INT_SIZE; ++i){
         interrupt_func_table[i] = default_exception;
     }
@@ -149,11 +156,28 @@ static void idt_init(){
     gate_t *syscall_entry = &idt_table[0x80];
     syscall_entry->offset_l = (u32)syscall_handle;
     syscall_entry->offset_h = ((u32)syscall_handle >> 16);
-    syscall_entry->selector = 1 << 3; //代码段选择子
+
+    /* 目标代码段的 DPL 代表了调用者的最高特权级 */
+    syscall_entry->selector = KERNEL_CODE_SEG << 3 | DPL_KERNEL;
     syscall_entry->reserved = 0;
-    syscall_entry->type = 0xe;        //0b1110，中断门
-    syscall_entry->segment = 0;
-    syscall_entry->DPL = 3;           //用户态
+    syscall_entry->type = 0b1110;       //0b1110，中断门
+    syscall_entry->segment = 0;         //系统段
+
+    /* 中断描述符的特权级代表了调用者的最低特权级 */
+    /* 这样就形成了门的形状 */
+    /*==============目标代码段选择子的 DPL ============*/
+    /*                                               */
+    /*                                               */
+    /*                                               */
+    /*                                               */
+    /*                 中间空白部分                   */
+    /*                  都是可以                      */
+    /*                   通过的                       */
+    /*                                               */
+    /*                                               */
+    /*                                               */
+    /*=================中断描述符特权级================*/
+    syscall_entry->DPL = DPL_USER;
     syscall_entry->present = 1;
 
     asm volatile("lidt p");
@@ -208,11 +232,17 @@ void set_IF(bool state)
         asm volatile("cli\n");
 }
 
+bool get_and_disable_IF(){
+    bool state = get_IF();
+    set_IF(false);
+
+    return state;
+}
+
 void interrupt_init(){
     idt_init(); //初始化 idt 中断表
     pic_init(); //初始化 8259A 主片从片，关闭所有外中断
 
-    syscall_init();
     clock_init();
     //rtc_init();
     keyboard_init();

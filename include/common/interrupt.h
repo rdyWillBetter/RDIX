@@ -53,5 +53,6 @@ void set_int_mask(u32 irq, bool enable);
 void sent_eoi(u32 int_num);
 bool get_IF();
 void set_IF(bool state);
+bool get_and_disable_IF();
 
 #endif

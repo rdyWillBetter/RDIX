@@ -3,6 +3,8 @@
 #include <rdix/kernel.h>
 #include <common/interrupt.h>
 
+/* malloc 和 free 已经做了竞争保护 */
+
 /* 一定要是 16 字节
  * 每一个页被称为一个 bucket，bucket_desc 是一个 bucket 的描述符
  * 一个 bucket 被分成多个固定大小的块，每个块开头四个字节是一个 void 类型指针

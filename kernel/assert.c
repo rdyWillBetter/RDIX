@@ -3,10 +3,7 @@
 #include <common/type.h>
 
 void assertion_failure(char *exp, char *file, char *base, int line){
-    printk("file [%s]\
-            base [%s]\
-            line [%d]\
-            : error: %s", file, base, line, exp);
+    printk("file [%s]\nbase [%s]\nline [%d]\nerror: %s", file, base, line, exp);
     
     while (true);
 }

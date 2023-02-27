@@ -108,7 +108,7 @@ ListNode_t *task_create(task_program handle, void *param, const char *name, u32 
     }
     
     /* edi 为指向传入参数结构体的指针 */
-    stack->edi = param;
+    stack->edi = (u32)param;
     stack->esi = 0x2;
     stack->ebx = 0x3;
     stack->ebp = 0x4;
@@ -121,7 +121,7 @@ ListNode_t *task_create(task_program handle, void *param, const char *name, u32 
     tcb->jiffies = 0;
     strcpy((char *)tcb->name, name);
     tcb->uid = uid;
-    tcb->pde = 0x1000; //内核页目录，修改过memory.c后要注意这里可能出问题
+    tcb->pde = (page_entry_t *)0x1000; //内核页目录，修改过memory.c后要注意这里可能出问题
     tcb->vmap = &v_bit_map; //内核虚拟内存位图，同上
     tcb->magic = RDIX_MAGIC;
 
@@ -135,11 +135,14 @@ ListNode_t *task_create(task_program handle, void *param, const char *name, u32 
 void schedule(){
     ListNode_t *next = list_popback(ready_list);
     ListNode_t *current = running_task;
-    TCB_t *next_tcb = (TCB_t *)next->owner;
-    TCB_t *current_tcb = (TCB_t *)current->owner;
 
+    /* bug 调试记录
+     * 必须要验证 next 不为 NULL 后，在能进行下一步操作 */
     if (next == NULL)
         return;
+
+    TCB_t *next_tcb = (TCB_t *)next->owner;
+    TCB_t *current_tcb = (TCB_t *)current->owner;
 
     running_task = next;
 
@@ -160,7 +163,12 @@ void schedule(){
 
     if (next_tcb->uid == USER_UID){
         /* tss.esp0 应当是该用户任务的内核栈的初始地址，这里想一想有没有更好的办法 */
-        tss.esp0 = ((u32)next_tcb->stack & PAGE_SIZE) + PAGE_SIZE;
+        /* =========================================================
+         * bug 调试记录
+         * 把 0xfffff000 写成 PAGE_SIZE 导致 esp0 = 0x1000, 修改到页目录
+         * 真 90% 莫名其妙的问题都是栈引起的
+         * ========================================================= */
+        tss.esp0 = ((u32)next_tcb->stack & 0xfffff000) + PAGE_SIZE;
     }
 
     task_switch(current->owner, next->owner);
@@ -168,23 +176,33 @@ void schedule(){
 
 /* 参数存放在 edi 中 */
 static void *kernel_to_user(){
+    /* target 为用户程序入口地址 */
     user_target_t *target;
-    void *user_stack = alloc_kpage(1) + PAGE_SIZE;//todo
     intr_frame_t iframe;
     void *kernel_stack = &iframe;
+    TCB_t *current = (TCB_t *)current_task()->owner;
 
+    /* 参数指针保存在 edi 中 */
     asm volatile(
         "movl %%edi,%0\n"
         :"=m"(target)
     );
 
     /* 用户进程的虚拟内存空间位图以及页表待初始化 */
-    /*
+    
     current->vmap = (bitmap_t *)malloc(sizeof(bitmap_t));
+
+    /* 用户进程的虚拟内存位图为 4KB，所管理的内存起始地址为 8M
+     * 用户程序一共可使用的内存为 128M，也就是 8M 到 138M */
     bitmap_init(current->vmap, alloc_kpage(1), PAGE_SIZE, 0x800);
 
-    current->pde
-    */
+    /* 分配栈空间 */
+    for (page_idx_t i = PAGE_IDX(USER_STACK_BOTTOM); i < PAGE_IDX(USER_STACK_TOP); ++i){
+        assert(bitmap_set(current->vmap, i, true) != EOF);
+    }
+
+    current->pde = copy_pde();
+    set_cr3(current->pde);
 
     iframe.gs = 0;
     iframe.ds = (USER_DATA_SEG << 3) | DPL_USER;
@@ -195,8 +213,11 @@ static void *kernel_to_user(){
 
     iframe.error = RDIX_MAGIC;
     iframe.eip = (u32)*target;
+
+    /* flage 中 IOPL 是控制所有 IO 权限的开关
+     * 只有当 CPL <= IOPL 时，任务才允许访问所有 IO 端口，否则只能根据 tss 中的 io 位图来访问io */
     iframe.eflags = (0 << 12 | 0b10 | 1 << 9);
-    iframe.esp = user_stack;
+    iframe.esp = USER_STACK_TOP;
 
     /* 修改内核栈指针 */
     asm volatile(
@@ -268,6 +289,9 @@ void task_sleep(time_t time){
     current->value = jiffies + ticks;
 
     ((TCB_t*)current->owner)->state = TASK_SLEEPING;
+    TCB_t *tmp = (TCB_t*)current->owner;
+
+    /* 这里不许要删除节点，因为主动调用 sleep 的任务必然是当前任务，不属于其他状态链表 */
     list_insert(sleep_list, current, greater);
 
     schedule();

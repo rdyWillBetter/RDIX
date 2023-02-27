@@ -4,6 +4,7 @@
 #include <common/type.h>
 #include <common/bitmap.h>
 #include <common/list.h>
+#include <rdix/memory.h>
 
 #define KERNEL_UID 0
 #define USER_UID 3
@@ -35,7 +36,7 @@ typedef struct TCB_t{
     u32 jiffies;             // 上次执行时全局时间片，也就是总时间
     char name[TASK_NAME_LEN]; // 任务名
     u32 uid;                 // 用户 id
-    u32 pde;                 // 页目录物理地址
+    page_entry_t *pde;                 // 页目录物理地址
     bitmap_t *vmap;   // 进程虚拟内存管理位图
     u32 magic;               // 内核魔数，用于检测栈溢出
 } TCB_t;

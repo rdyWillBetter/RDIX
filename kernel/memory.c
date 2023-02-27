@@ -4,21 +4,19 @@
 #include <common/string.h>
 #include <common/bitmap.h>
 #include <common/assert.h>
+#include <rdix/task.h>
+#include <common/interrupt.h>
 
 #define MEM_AVAILABLE 1
 #define V_BIT_MAP_ADDR 0x4000 //虚拟内存管理表起始地址
-#define PAGE_IDX(addr) (addr >> 12) //通过页地址得到页索引
-#define PAGE_ADDR(idx) (idx << 12) //通过页索引得到页地址
 #define BIOS_MEM_SIZE 0x100000
-#define DIDX(addr) (addr >> 22) //得到 addr 的页目录索引号
-#define TIDX(addr) ((addr >> 12) & 0x3ff) //得到 addr 的页目表引号
 
 static size_t mem_base; //用于存放 1M 以外最大内存的基地址
 static size_t mem_size;
-static size_t total_pages;
+static size_t total_pages; //总物理内存
 static size_t free_pages;
 
-static page_idx_t start_available_p_page_idx; //第一个可用的物理页索引
+static page_idx_t start_available_p_page_idx; //第一个可用的物理页索引，生成以后就固定不变
 static u8 *p_bit_map; //物理内存管理，一页占 8 bit，用于记录物理页被引用次数
 static size_t p_map_pages; //物理内存管理表所占页数
 
@@ -29,17 +27,46 @@ bitmap_t v_bit_map; //内核虚拟内存管理，一页占 1 bit，用于记录�
 static u32 kernel_page_dir = 0x1000; //内核页目录
 static u32 kernel_page_table[] = {0x2000, 0x3000}; //内核页表数组，里面保存每个页表的起始物理地址
 
-static void *get_page(){
+/* 已做竞争保护
+ * 返回物理页地址，非索引号 */
+static void *get_p_page(){
+    bool state = get_and_disable_IF();
+
     for (page_idx_t i = start_available_p_page_idx; i < total_pages; ++i){
         if (p_bit_map[i])
             continue;
+
         p_bit_map[i] = 1;
+
         if (free_pages == 0)
             PANIC("Out of Memory");
+
         --free_pages;
+
+        set_IF(state);
         return (void *)PAGE_ADDR(i);
     }
     PANIC("Out of Memory");
+}
+
+/* 已做竞争保护
+ * idx 为物理页索引号 */
+static void free_p_page(page_idx_t idx){
+    /* 确保页索引号在可用物理页范围之内。start_available_p_page_idx 和 total_pages 是一个固定值 */
+    assert(idx >= start_available_p_page_idx && idx < total_pages);
+    /* 确保该物理页确实有被分配 */
+    assert(p_bit_map[idx] >= 1);
+
+    bool state = get_and_disable_IF();
+
+    --p_bit_map[idx];
+
+    if (p_bit_map[idx] == 0)
+        ++free_pages;
+    
+    set_IF(state);
+
+    assert(free_pages > 0 && free_pages < total_pages);
 }
 
 /* info 为指向 int 0x15 返回的内存检测结果的指针 */
@@ -168,12 +195,21 @@ static void memory_init(u32 magic, u32 info){
 }
 
 /* cr3 寄存器用于存放页目录索引 */
-_inline u32 get_cr3(){
+u32 get_cr3(){
     asm volatile("movl %cr3, %eax");
 }
 
-_inline u32 set_cr3(u32 pde){
+u32 set_cr3(u32 pde){
     asm volatile("movl %%eax, %%cr3"::"a"(pde));
+}
+
+/* cr2 含有导致页错误的线性地址，缺页中断时需要使用 */
+u32 get_cr2(){
+    asm volatile("movl %cr2, %eax");
+}
+
+u32 set_cr2(u32 pde){
+    asm volatile("movl %%eax, %%cr2"::"a"(pde));
 }
 
 /* cr0 最高位寄存器用于开启和关闭分页模式 */
@@ -183,13 +219,13 @@ static _inline void  enable_page_mode(){
                 movl %%eax, %%cr0":::"%eax");
 }
 
-/* 将页表地址 pg_idx 写入页表表项类型数据结构 pte */
-static void entry_init(page_entry_t *pte, page_idx_t pg_idx){
-    *(u32 *)pte = 0;
-    pte->present = 1;
-    pte->write = 1;
-    pte->user = 1;
-    pte->index = pg_idx;
+/* 将物理页索引 pg_idx 写入页表表项类型数据结构 pte */
+static void entry_init(page_entry_t *entry, page_idx_t pg_idx){
+    *(u32 *)entry = 0;
+    entry->present = 1;
+    entry->write = 1;
+    entry->user = 1;
+    entry->index = pg_idx;
 }
 
 /* 映射了内核的内存，一共映射了 8M，
@@ -229,66 +265,185 @@ static void page_mode_init(){
     enable_page_mode();
 }
 
-/* 只操作虚拟内存
+/* 非内核可使用
+ * count 单位为页 */
+void *_alloc_page(u32 count){
+    bitmap_t *vmap = ((TCB_t *)current_task()->owner)->vmap;
+    int start_page_idx = bitmap_scan(vmap, count);
+    if (start_page_idx == EOF){
+        return NULL;
+    }
+    return (void *)PAGE_ADDR(start_page_idx);
+}
+
+void _free_page(void *vaddr, u32 count){
+    bitmap_t *vmap = ((TCB_t *)current_task()->owner)->vmap;
+    for (size_t i = 0; i < count; ++i){
+        if (bitmap_set(vmap, PAGE_IDX((u32)vaddr) + i, false) == EOF)
+            PANIC("_free_page: memory free error");
+    }   
+}
+
+/* alloc_kpage 和 free_kpage 已经做了竞争保护
+ * 只操作内核虚拟内存
  * count 单位为页
  * 从虚拟内存中申请一块长度为 count 的连续内存，返回内存起始地址指针 */
 void *alloc_kpage(u32 count){
+    bool IF_state = get_IF();
+    set_IF(false);
+
     int start_page_idx = bitmap_scan(&v_bit_map, count);
+
+    set_IF(IF_state);
+
     if (start_page_idx == EOF){
         return NULL;
     }
     return (void *)PAGE_ADDR(start_page_idx);   
 }
 
-/* 只操作虚拟内存
+/* 只操作内核虚拟内存
  * count 单位为页
- * 通过修改内核虚拟内存表中的值，将起始页索引号为 vaddr 后连续的 count 个页都释放。 */
+ * 通过修改内核虚拟内存表中的值，将虚拟地址 vaddr 后连续的 count 个页都释放。 */
 void free_kpage(void *vaddr, u32 count){
+    bool IF_state = get_IF();
+    set_IF(false);
+
     for (size_t i = 0; i < count; ++i){
         if (bitmap_set(&v_bit_map, PAGE_IDX((u32)vaddr) + i, false) == EOF)
             PANIC("free_kpage: memory free error");
-    }   
+    }
+
+    set_IF(IF_state);   
 }
 
-//void mem_test();
+/* 刷新快表 TLB
+ * invlpg m 指令中，m 是内存地址，不是立即数，所以要加中括号（括号） */
+static void flush_tlb(u32 vaddr){
+    asm volatile(
+        "invlpg (%0)\n"
+        :
+        :"r"(vaddr)
+        :"memory"   //为什么要使用 memory ? 应该和编译器有关。
+    );
+}
+
+/* 获取 vaddr 对应的页表起始地址
+ * 页和页表的线性地址位于内存空间的最后 4M ，而进程 vmap 最多只能管理 128M + 8M
+ * 因此这里页表 pte 的获取不需要在进程的 vmap 里声明 */
+page_entry_t *get_pte(u32 vaddr, bool exist){
+    page_entry_t *pde = PDE_L_ADDR;
+    page_entry_t *pte_entry = &pde[DIDX(vaddr)];
+
+    if (!(pte_entry->present)){
+        assert(exist == false);
+        entry_init(pte_entry, PAGE_IDX((u32)get_p_page()));
+    }
+        
+    page_entry_t *pte = PTE_L_ADDR(vaddr);
+    flush_tlb((u32)pte);
+
+    return pte;
+}
+
+void link_page(u32 vaddr){
+    page_entry_t *pte = get_pte(vaddr, false);
+    page_entry_t *entry = &pte[TIDX(vaddr)];
+
+    TCB_t *task = (TCB_t *)current_task()->owner;
+    bitmap_t *vmap = task->vmap;
+
+    /* 当前虚拟内存页必须已经被当前任务申请 */
+    assert(bitmap_test(vmap, PAGE_IDX(vaddr)));
+
+    /* page fault 的触发就是根据 present 位来的 */
+    if (entry->present)
+        return;
+    
+    u32 paddr = (u32)get_p_page();
+    entry_init(entry, PAGE_IDX(paddr));
+
+    /* 将刚申请的页表项载入 TLB */
+    flush_tlb(vaddr);
+
+    DEBUGK("link:paddr = 0x%p, vaddr = 0x%p\n", paddr, vaddr);
+}
+
+void unlink_page(u32 vaddr){
+    page_entry_t *pte = get_pte(vaddr, true);
+    page_entry_t *entry = &pte[TIDX(vaddr)];
+
+    assert(entry->present);
+
+    entry->present = false;
+    page_idx_t pidx = entry->index;
+
+    free_p_page(pidx);
+
+    /* 不刷新快表的话，cpu 会认为 vaddr 对应的物理地址还存在
+     * 并且 present == false 的页表项毫无意义，需要将其从 TLB 中刷掉 */
+    flush_tlb(vaddr);
+
+    DEBUGK("unlink:paddr = 0x%p, vaddr = 0x%p\n", PAGE_ADDR(pidx), vaddr);
+}
+
+page_entry_t *copy_pde(){
+    TCB_t *kernel = (TCB_t *)current_task()->owner;
+    page_entry_t *pde = (page_entry_t *)alloc_kpage(1);
+    memcpy(pde, kernel->pde, PAGE_SIZE);
+
+    page_entry_t *entry = &pde[1023];
+    entry_init(entry, PAGE_IDX((u32)pde));
+
+    return pde;
+}
+
+void page_fault(
+    u32 int_num, u32 code,
+    u32 edi, u32 esi, u32 ebp, u32 esp,
+    u32 ebx, u32 edx, u32 ecx, u32 eax,
+    u32 gs, u32 fs, u32 es, u32 ds,
+    u32 vector0, page_error_code_t error, u32 eip, u32 cs, u32 eflags){
+
+        assert(int_num == 0xe);
+        /* 这里在 USER_STACK_BOTTOM 后面应当专门留出一页来引发缺页中断，防止栈溢出 */
+
+        /* 目前无法在这里做到检测栈是否溢出 */
+        /*
+        if  (!(esp3 <= USER_STACK_TOP && esp3 > USER_STACK_BOTTOM))
+            PANIC("stack error: out of memory!\n");
+        */  
+        u32 vaddr = get_cr2();
+
+        printk("in page fault : vaddr = 0x%p\n", vaddr);
+        /* USER_STACK_BOTTOM 后面一页不映射，用来引发中断，防止栈溢出 */
+        assert(!(vaddr <= USER_STACK_BOTTOM && vaddr > (USER_STACK_BOTTOM - PAGE_SIZE)));
+        assert(vaddr >= KERNEL_MEMERY_SIZE && vaddr < USER_STACK_TOP);
+        
+        if (!error.present){
+            link_page(vaddr);
+            return;
+        }
+
+        printk("\nEXCEPTION : PAGE FAULT \n");
+        printk("   VECTOR : 0x%02X\n", int_num);
+        printk("    ERROR : 0x%08X\n", error);
+        printk("   EFLAGS : 0x%08X\n", eflags);
+        printk("       CS : 0x%02X\n", cs);
+        printk("      EIP : 0x%08X\n", eip);
+        printk("      ESP : 0x%08X\n", esp);
+        printk("       DS : 0x%08X\n", ds);
+        printk("       ES : 0x%08X\n", es);
+        printk("       fS : 0x%08X\n", fs);
+        printk("       GS : 0x%08X\n", gs);
+        printk("      EAS : 0x%08X\n", eax);
+
+        // 阻塞
+        while(true);
+    }
 
 void mem_pg_init(u32 magic, u32 info){
     memory_init(magic, info);
     page_mode_init();
     //mem_test();
 }
-
-/* void mem_test(){
-   // 将 20 M 0x1400000 内存映射到 64M 0x4000000 的位置
-    u32 laddr = 0x4000000, paddr = 0x1400000;
-    page_entry_t *pde = PDT_L_ADDR;
-    page_entry_t *pte = PTB_L_ADDR(laddr);
-    page_entry_t *new_pte_p = (page_entry_t *)get_page();
-
-    BMB;
-    entry_init(&pde[DIDX(laddr)], PAGE_IDX((u32)new_pte_p));
-    memset((void *)pte, 0, PAGE_SIZE);
-
-    for (page_idx_t idx = 0; idx < 1024; ++idx){
-        entry_init(&pte[idx], idx + PAGE_IDX(paddr));
-    }
-    BMB;
-
-    char *ptr = (char *)laddr;
-    ptr[0] = 's';
-    BMB;
-} */
-
-/*
-void mem_test(){
-
-    void *mem1 = alloc_kpage(2);
-    void *mem2 = alloc_kpage(1);
-
-    printk("start of memory 1 = %p\n", mem1);
-    printk("start of memory 2 = %p\n", mem2);
-
-
-    free_kpage(mem1, 2);
-    free_kpage(mem2, 1);
-}*/

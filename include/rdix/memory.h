@@ -2,12 +2,27 @@
 #define __MEMORY_H__
 
 #include <common/type.h>
+#include <common/bitmap.h>
+
+#define KERNEL_MEMERY_SIZE 0x800000
 
 #define PAGE_SIZE 0x1000
-#define PDT_L_ADDR ((page_entry_t *)0xfffff000) //页目录的线性地址，往往放在 4G 空间最后一页
-#define PTB_L_ADDR(laddr) ((page_entry_t *)(0xffc00000 | (laddr >> 10 & 0xfffff000))) //输入线性地址，可以得到该地址的页表
+#define PDE_L_ADDR ((page_entry_t *)0xfffff000) //页目录的线性地址，往往放在 4G 空间最后一页
+#define PAGE_IDX(addr) (addr >> 12) //通过页地址得到页索引
+#define PAGE_ADDR(idx) (idx << 12) //通过页索引得到页地址
+#define DIDX(addr) (addr >> 22) //得到 addr 的页目录索引号
+#define TIDX(addr) ((addr >> 12) & 0x3ff) //得到 addr 的页目表引号
+
+/* 输入线性地址，返回该地址对应页表的起始地址 */
+#define PTE_L_ADDR(vaddr) ((page_entry_t *)(0xffc00000 | (vaddr >> 10 & 0xfffff000)))
 #define get_free_page() alloc_kpage(1)
-#define free_page(laddr) free_kpage(laddr, 1)
+#define free_page(vaddr) free_kpage(vaddr, 1)
+
+/* 用户内存大小是 128M + 内核内存 8M
+ * 就是 0x8800000 */
+#define USER_STACK_TOP (0x8000000 + KERNEL_MEMERY_SIZE)
+#define USER_STACK_SIZE 0x200000
+#define USER_STACK_BOTTOM (USER_STACK_TOP - USER_STACK_SIZE)
 
 /* int 0x15 返回的内存检测结果格式 */
 typedef struct mem_ards{
@@ -34,6 +49,29 @@ typedef struct page_entry_t
     page_idx_t index : 20;  // 页索引
 } _packed page_entry_t;
 
+/* 缺页中断时传入的错误码 */
+typedef struct page_error_code_t
+{
+    /* 0 代表是因为页不存在引起的异常
+     * 1 代表是由特权级引起的异常 */
+    u8 present : 1;
+
+    /* 0 由读引起的异常
+     * 1 由写引起的异常 */
+    u8 write : 1;
+
+    /* 0 内核态下引起的异常
+     * 1 用户态下引起的异常 */
+    u8 user : 1;
+    u8 reserved0 : 1;
+    u8 fetch : 1;
+    u8 protection : 1;
+    u8 shadow : 1;
+    u16 reserved1 : 8;
+    u8 sgx : 1;
+    u16 reserved2;
+} _packed page_error_code_t;
+
 void mem_pg_init(u32 magic, u32 info);
 
 /* count 单位为页
@@ -43,8 +81,24 @@ void *alloc_kpage(u32 count);
 /* 释放的是虚拟内存，不是物理内存 */
 void free_kpage(void *vaddr, u32 count);
 
+/* 这两个对应的是非内核版本 */
+void *_alloc_page(u32 count);
+void _free_page(void *vaddr, u32 count);
+
 /* cr3 寄存器存放页目录物理地址 */
 u32 get_cr3();
 u32 set_cr3(u32 pde);
+
+void link_page(u32 vaddr);
+void unlink_page(u32 vaddr);
+
+page_entry_t *copy_pde();
+
+void page_fault(
+    u32 int_num, u32 code,
+    u32 edi, u32 esi, u32 ebp, u32 esp,
+    u32 ebx, u32 edx, u32 ecx, u32 eax,
+    u32 gs, u32 fs, u32 es, u32 ds,
+    u32 vector0, page_error_code_t error, u32 eip, u32 cs, u32 eflags);
 
 #endif
