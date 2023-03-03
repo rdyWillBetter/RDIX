@@ -114,6 +114,12 @@ static void sys_exception(
     while(true);
 }
 
+/* =============================================================================
+ * bug 调试记录
+ * 重启和关机后在开机，计算机表现的特性是不一样的。
+ * 在操作系统开发过程中，遇到过重启出现一直触发irq7中断的问题，无法通过mask关闭中断通道，
+ * 但是关机再开机后表现正常。
+ * ============================================================================= */
 static void default_exception(u32 int_num, u32 code){
     printk("default exception, in interrupt [0x%x]\n", int_num);
     sent_eoi(int_num);
@@ -242,7 +248,6 @@ bool get_and_disable_IF(){
 void interrupt_init(){
     idt_init(); //初始化 idt 中断表
     pic_init(); //初始化 8259A 主片从片，关闭所有外中断
-
     clock_init();
     //rtc_init();
     keyboard_init();

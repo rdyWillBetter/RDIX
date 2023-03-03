@@ -7,6 +7,7 @@
 #include <rdix/mutex.h>
 #include <rdix/task.h>
 #include <common/assert.h>
+#include <common/console.h>
 
 #define KEYBOARD_DATA_POAT 0x60
 #define KETBOARD_CTRL_POAT 0x64
@@ -241,6 +242,7 @@ static bool extcode_state; //扩展码状态
 
 void keyboard_hander(u32 int_num, u32 code){
     u32 scancode = port_inb(KEYBOARD_DATA_POAT);
+    /* ext 表示按下的是否为扩展的扫描码 */
     u8 ext = 2;
     
     if (scancode == 0xe0){
@@ -257,12 +259,30 @@ void keyboard_hander(u32 int_num, u32 code){
         goto End;
     }
 
+    /* 断码，第 8 位必为 1 */
     if ((scancode & 0x80) != 0){
         keymap[scancode & 0x7f][ext] = false;
         goto End;
     }
 
     keymap[scancode][ext] = true;
+
+    /* 箭头按键传入的时扩展码和扫描码 */
+    if (ext == 3){
+        switch (scancode){
+            //上
+            case KEY_PAD_8: keyboard_arrow(UP); break;
+            //下
+            case KEY_PAD_2: keyboard_arrow(DOWN); break;
+            //左
+            case KEY_PAD_4: keyboard_arrow(LEFT); break;
+            //右
+            case KEY_PAD_6: keyboard_arrow(RIGHT); break;
+
+            default: break;
+        }
+        goto End;
+    }
 
     if (scancode == KEY_CAPSLOCK){
         capslock_state = !capslock_state;

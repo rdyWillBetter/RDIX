@@ -11,6 +11,9 @@
 static u16 CPosition = 0; //每次字符显示的位置，光标位置
 static u16 SPosition; //屏幕位置
 
+/* 当前可访问的屏幕空间 */
+static u16 end;
+
 u16 get_cursor_position(){
 
     u16 cursor_position = 0;
@@ -33,9 +36,16 @@ u16 get_screen_position(){
     return screen_position;
 }
 
-void set_cursor_position(u16 cursor_position){
+static u16 scroll_down(bool clean);
+static void scroll_up();
+
+void set_cursor_position(u16 cursor_position, bool clean){
     if (cursor_position >= SPosition + SCREEN_ROW_COUNT * SCREEN_COL_COUNT){
-        cursor_position = scroll_up();
+        cursor_position = scroll_down(clean);
+    }
+
+    if (cursor_position < SPosition){
+        scroll_up();
     }
 
     port_outb(CRT_ADDR_REG,CRT_CURSOR_H);
@@ -59,8 +69,10 @@ void console_clean(){
     CPosition = 0;
     SPosition = 0;
 
+    end = 0;
+
     set_screen_position(SPosition);
-    set_cursor_position(CPosition);
+    set_cursor_position(CPosition, false);
 
     u16 *vedio = (u16 *)VEDIO_BASE_ADDR;
     for (u16 i = 0; i < FULL_SCREEN_SIZE; ++i){
@@ -76,7 +88,13 @@ void proc_lf(){
     u16 next_row = CPosition / SCREEN_ROW_COUNT + 1;
     CPosition = next_row * SCREEN_ROW_COUNT;
 
-    set_cursor_position(CPosition);
+    set_cursor_position(CPosition, true);
+}
+
+void proc_table(){
+    CPosition = ((CPosition + TABLE_SIZE) / TABLE_SIZE) * TABLE_SIZE;
+
+    set_cursor_position(CPosition, true);
 }
 
 /* 已做关中断处理，可放心使用 */
@@ -93,18 +111,24 @@ void console_put_char(char ch, u8 type){
             proc_lf();
             break;
         
+        case TABLE:
+            proc_table();
+            break;
+        
         case BACKSPASE:
             --CPosition;
             vedio[CPosition] = BLANK;
-            set_cursor_position(CPosition);
+            set_cursor_position(CPosition, false);
             break;
         
         default:
             vedio[CPosition] = word_block;
             ++CPosition;
-            set_cursor_position(CPosition);
+            set_cursor_position(CPosition, true);
             break;
     }
+
+    end = CPosition;
 
     set_IF(IF_stat);
 }
@@ -126,7 +150,8 @@ void console_put_string(const char* str, u8 type){
     set_IF(IF_stat);
 }
 
-u16 scroll_up(){
+/* clean == true 时往下滚屏后需要擦除下一行  */
+static u16 scroll_down(bool clean){
     if (VEDIO_BASE_ADDR + (SPosition + FULL_SCREEN_SIZE) * 2 \
      < VEDIO_END_ADDR - SCREEN_ROW_COUNT * 4){
         SPosition += SCREEN_ROW_COUNT;
@@ -138,15 +163,61 @@ u16 scroll_up(){
         
         SPosition = 0;
         CPosition = FULL_SCREEN_SIZE - SCREEN_ROW_COUNT;
+        end = CPosition;
         //注意CPosition的修改，函数耦合过高，待优化
     }
     
     set_screen_position(SPosition);
     
-    u16 *earse = (u16 *)(VEDIO_BASE_ADDR + (SPosition + FULL_SCREEN_SIZE - SCREEN_ROW_COUNT) * 2);
-    for (int i = 0; i < SCREEN_ROW_COUNT; ++i){
-        earse[i] = BLANK;
+    /* ===========================================================================
+     * bug 调试记录
+     * 如果没有 clean 标志位，这里在使用键盘上的上下左右箭头向下滚屏时，会误删掉一些内容
+     * 所以需要 clean 位标明在向下滚屏时是否删除屏幕最后一行
+     * =========================================================================== */
+    if (clean){
+        u16 *earse = (u16 *)(VEDIO_BASE_ADDR + (SPosition + FULL_SCREEN_SIZE - SCREEN_ROW_COUNT) * 2);
+        for (int i = 0; i < SCREEN_ROW_COUNT; ++i){
+            earse[i] = BLANK;
+        }
     }
 
     return CPosition;
+}
+
+static void scroll_up(){
+    assert(!(SPosition % SCREEN_ROW_COUNT));
+
+    if (SPosition > 0)
+        SPosition -= SCREEN_ROW_COUNT;
+
+    set_screen_position(SPosition);
+}
+
+void keyboard_arrow(Arrow_t arrow){
+    switch (arrow){
+        case DOWN: if (CPosition + SCREEN_ROW_COUNT <= end){
+            CPosition += SCREEN_ROW_COUNT;
+        } else{
+            CPosition = end;
+        }
+        set_cursor_position(CPosition, false);
+        break;
+
+        case UP: if (CPosition - SCREEN_ROW_COUNT >= 0){
+            CPosition -= SCREEN_ROW_COUNT;
+            set_cursor_position(CPosition, false);
+        } break;
+        
+        case LEFT: if (CPosition - 1 >= 0){
+            --CPosition;
+            set_cursor_position(CPosition, false);
+        } break;
+
+        case RIGHT: if (CPosition + 1 <= end){
+            ++CPosition;
+            set_cursor_position(CPosition, false);
+        } break;
+
+        default: break;
+    }
 }

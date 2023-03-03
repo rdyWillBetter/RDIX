@@ -193,7 +193,7 @@ gdtr:
 DiskAddressPacket:
 	PacketSize db 0x10
 	Reserved db 0
-	BlockCount dw 0x40
+	BlockCount dw 0x60
 	BufferOffset dw 0
 	BufferSeg dw 0x2000
 	BlockNum dq 20

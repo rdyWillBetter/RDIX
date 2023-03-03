@@ -11,12 +11,13 @@
 #include <rdix/multiboot2.h>
 #include <common/list.h>
 #include <common/stdio.h>
+#include <rdix/pci.h>
 
 void handle_1(){
     char ch;
     while (true){
-        //keyboard_read(&ch, 1);
-        printk("b\n");
+        keyboard_read(&ch, 1);
+        printk("%c", ch);
     }
 }
 
@@ -45,16 +46,19 @@ void kernel_init(u32 magic, u32 info){
         printk("###Boot by RDIX LOADER###\n");
     else if (magic == MULTIBOOT_OS_MAGIC)
         printk("###Boot by MULTIBOOT2###\n");
+    
+    //printk("test\n");
 
     gdt_init();
     mem_pg_init(magic,info);
     task_init();
     interrupt_init();
+    PCI_init();
     syscall_init();
 
     set_IF(true);
-    
     task_create(handle_1, NULL, "test", 3, KERNEL_UID);
-    user_task_create(user_1, "user_1", 3);
+    PCI_info();
+    //user_task_create(user_1, "user_1", 3);
     //task_create(handle_2, "test", 3, 0);
 }

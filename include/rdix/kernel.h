@@ -11,6 +11,7 @@ void printk(const char *fmt, ...);
 
 void debugk(const char *file, const int line, const char *fmt, ...);
 void panic(const char *file, const int line, const char *fmt, ...);
+void logk(const char *info, const char* fmt, ...);
 
 void *malloc(size_t requist_size);
 void free_s(void *obj, size_t size);
