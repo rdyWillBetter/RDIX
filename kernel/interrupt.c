@@ -248,7 +248,7 @@ bool get_and_disable_IF(){
 void interrupt_init(){
     idt_init(); //初始化 idt 中断表
     pic_init(); //初始化 8259A 主片从片，关闭所有外中断
-    clock_init();
+    //clock_init();
     //rtc_init();
     keyboard_init();
 }

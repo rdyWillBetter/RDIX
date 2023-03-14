@@ -3,6 +3,14 @@
 
 #include <rdix/kernel.h>
 
+bool strcmp(const char *str0, const char *str1, size_t count){
+    for (int i = 0; i < count; ++i){
+        if (str0[i] != str1[i])
+            return false;
+    }
+    return true;
+}
+
 /* 把 src 中的字符串放到 dest 字符串后面 */
 char *strcat(char *dest, const char *src){
     char *ptr = dest;

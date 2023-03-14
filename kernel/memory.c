@@ -7,12 +7,16 @@
 #include <rdix/task.h>
 #include <common/interrupt.h>
 
-#define MEM_AVAILABLE 1
+#define MEM_AVAILABLE_TYPE 1
 #define V_BIT_MAP_ADDR 0x4000 //虚拟内存管理表起始地址
-#define BIOS_MEM_SIZE 0x100000
 
-static size_t mem_base; //用于存放 1M 以外最大内存的基地址
-static size_t mem_size;
+/* mmio 所使用的内存空间基地址 */
+extern vir_addr_t start_io_memory;
+
+/* 系统所使用的物理内存基地址及大小（不包含低 1M 内存） */
+size_t mem_base;
+size_t mem_size;
+
 static size_t total_pages; //总物理内存
 static size_t free_pages;
 
@@ -29,7 +33,7 @@ static u32 kernel_page_table[] = {0x2000, 0x3000}; //内核页表数组，里面
 
 /* 已做竞争保护
  * 返回物理页地址，非索引号 */
-static void *get_p_page(){
+static phy_addr_t get_p_page(){
     bool state = get_and_disable_IF();
 
     for (page_idx_t i = start_available_p_page_idx; i < total_pages; ++i){
@@ -76,6 +80,8 @@ static void memory_init(u32 magic, u32 info){
     mem_base = 0;
     mem_size = 0;
 
+    start_io_memory = IO_MEM_START;
+
     printk("before :mem_base = %#p, mem_size = %p\n", mem_base, mem_size);
     printk("before :total_page = %d, free_pages = %d\n", total_pages, free_pages);
 
@@ -87,18 +93,20 @@ static void memory_init(u32 magic, u32 info){
         /* 指向第一个内存检测条目(entry) */
         mem_adrs *info_ptr = (mem_adrs*)(info + 4);
 
+        
         for (int i = 0; i < count; ++i){
             /* base 和 length 都是64位数据，这里只读取了低 32 位的数据，
             * 数据有丢失，今后可以进一步修改以提高操作系统性能 */
-            /*printk("count = %02d, base = %#p, length = %#p, type = %d\n",\
+            /*
+            printk("count = %02d, base = %#p, length = %#p, type = %d\n",\
             i,\
             (u32)info_ptr[i].base,\
             (u32)info_ptr[i].length,\
-            (u32)info_ptr[i].type);*/
-
+            (u32)info_ptr[i].type);
+            */
             /* 从 1M 以外的空间选取了一块相对较大的空间作为保护模式下的内存，
             * 1M 以外空间的内存不一定连续，这里只取相对大的一块，很有可能有其他更大的块被浪废了 */
-            if (info_ptr[i].type == MEM_AVAILABLE && info_ptr[i].base == BIOS_MEM_SIZE){
+            if (info_ptr[i].type == MEM_AVAILABLE_TYPE && info_ptr[i].base == BIOS_MEM_SIZE){
                 mem_base = info_ptr[i].base;
                 mem_size = info_ptr[i].length;
             }
@@ -136,7 +144,7 @@ static void memory_init(u32 magic, u32 info){
         size_t mem_tag_count = (map_tag->general.size - sizeof(MAP_TAG_t)) / sizeof(MENTRY_t);
 
         for (int i = 0; i < mem_tag_count; ++i){
-            if (grub_mem_entry[i].type == MEM_AVAILABLE && grub_mem_entry[i].base_addr == BIOS_MEM_SIZE){
+            if (grub_mem_entry[i].type == MEM_AVAILABLE_TYPE && grub_mem_entry[i].base_addr == BIOS_MEM_SIZE){
                 mem_base = grub_mem_entry[i].base_addr;
                 mem_size = grub_mem_entry[i].length;
             }
@@ -179,7 +187,7 @@ static void memory_init(u32 magic, u32 info){
      * sizeof(kernel_page_table) == 页表个数 * 4
      * V_BIT_MAP_ADDR == 0x4000，即放置虚拟内存位图表的位置为 0x4000， 极可能出现溢出的情况，需要注意。
      * 这段初始化代码应当和页表初始化放在一起或单独放。放在这里不妥。 */
-    u32 length = PAGE_IDX((0x100000 * sizeof(kernel_page_table)) - mem_base) / 8;
+    u32 length = PAGE_IDX(KERNEL_MEMERY_SIZE - mem_base) / 8;
     memset((void *)V_BIT_MAP_ADDR, 0, length);
     bitmap_init(&v_bit_map, (u8 *)V_BIT_MAP_ADDR, length, PAGE_IDX(mem_base));//该处执行后 v_bit_map 指针指向 V_BIT_MAP_ADDR
 
@@ -220,7 +228,7 @@ static _inline void  enable_page_mode(){
 }
 
 /* 将物理页索引 pg_idx 写入页表表项类型数据结构 pte */
-static void entry_init(page_entry_t *entry, page_idx_t pg_idx){
+void entry_init(page_entry_t *entry, page_idx_t pg_idx){
     *(u32 *)entry = 0;
     entry->present = 1;
     entry->write = 1;
@@ -229,7 +237,8 @@ static void entry_init(page_entry_t *entry, page_idx_t pg_idx){
 }
 
 /* 映射了内核的内存，一共映射了 8M，
- * 开启了分页模式 */
+ * 开启了分页模式
+ * 内核空间一共是 16M，后 8M 空间并没有进行映射，流出来用于映射 IO 空间 */
 static void page_mode_init(){
     page_idx_t idx = 0; //当前处理的页的索引号
 
@@ -266,7 +275,8 @@ static void page_mode_init(){
 }
 
 /* 非内核可使用
- * count 单位为页 */
+ * count 表示申请页的数量，单位为页
+ * 只申请虚拟内存空间的页，只有第一次访问该页发生缺页中断时才会分配物理页 */
 void *_alloc_page(u32 count){
     bitmap_t *vmap = ((TCB_t *)current_task()->owner)->vmap;
     int start_page_idx = bitmap_scan(vmap, count);
@@ -328,7 +338,7 @@ static void flush_tlb(u32 vaddr){
     );
 }
 
-/* 获取 vaddr 对应的页表起始地址
+/* 获取 vaddr 对应的页表起始地址，若页表不存在则创建一个页表
  * 页和页表的线性地址位于内存空间的最后 4M ，而进程 vmap 最多只能管理 128M + 8M
  * 因此这里页表 pte 的获取不需要在进程的 vmap 里声明 */
 page_entry_t *get_pte(u32 vaddr, bool exist){
@@ -353,7 +363,8 @@ void link_page(u32 vaddr){
     TCB_t *task = (TCB_t *)current_task()->owner;
     bitmap_t *vmap = task->vmap;
 
-    /* 当前虚拟内存页必须已经被当前任务申请 */
+    /* 当前虚拟内存页必须已经被当前任务申请
+     * 如果没有申请，则不可能访问到这一页从而触发缺页中断 */
     assert(bitmap_test(vmap, PAGE_IDX(vaddr)));
 
     /* page fault 的触发就是根据 present 位来的 */
@@ -385,6 +396,15 @@ void unlink_page(u32 vaddr){
     flush_tlb(vaddr);
 
     DEBUGK("unlink:paddr = 0x%p, vaddr = 0x%p\n", PAGE_ADDR(pidx), vaddr);
+}
+
+phy_addr_t get_phy_addr(vir_addr_t vaddr){
+    *(char *)vaddr = '1';
+    page_entry_t *pte = get_pte(vaddr, true);
+    page_entry_t *entry = &pte[TIDX((u32)vaddr)];
+
+    phy_addr_t tmp = (phy_addr_t)(PAGE_ADDR(entry->index) + ((u32)vaddr & 0xfff));
+    return tmp;
 }
 
 page_entry_t *copy_pde(){
@@ -445,5 +465,4 @@ void page_fault(
 void mem_pg_init(u32 magic, u32 info){
     memory_init(magic, info);
     page_mode_init();
-    //mem_test();
 }

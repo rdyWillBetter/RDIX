@@ -4,14 +4,16 @@
 #include <common/type.h>
 #include <common/bitmap.h>
 
-#define KERNEL_MEMERY_SIZE 0x800000
+#define KERNEL_MEMERY_SIZE 0x1600000
+#define IO_MEM_START 0x800000
+#define BIOS_MEM_SIZE 0x100000
 
 #define PAGE_SIZE 0x1000
 #define PDE_L_ADDR ((page_entry_t *)0xfffff000) //页目录的线性地址，往往放在 4G 空间最后一页
 #define PAGE_IDX(addr) (addr >> 12) //通过页地址得到页索引
 #define PAGE_ADDR(idx) (idx << 12) //通过页索引得到页地址
 #define DIDX(addr) (addr >> 22) //得到 addr 的页目录索引号
-#define TIDX(addr) ((addr >> 12) & 0x3ff) //得到 addr 的页目表引号
+#define TIDX(addr) ((addr >> 12) & 0x3ff) //得到 addr 的页表索引号
 
 /* 输入线性地址，返回该地址对应页表的起始地址 */
 #define PTE_L_ADDR(vaddr) ((page_entry_t *)(0xffc00000 | (vaddr >> 10 & 0xfffff000)))
@@ -32,6 +34,9 @@ typedef struct mem_ards{
 } _packed mem_adrs;
 
 typedef u32 page_idx_t; //用于表示页地址
+
+typedef void* phy_addr_t;
+typedef void* vir_addr_t;
 
 /* 页表中条目格式 */
 typedef struct page_entry_t
@@ -93,6 +98,12 @@ void link_page(u32 vaddr);
 void unlink_page(u32 vaddr);
 
 page_entry_t *copy_pde();
+page_entry_t *get_pte(u32 vaddr, bool exist);
+void entry_init(page_entry_t *entry, page_idx_t pg_idx);
+
+phy_addr_t get_phy_addr(vir_addr_t vaddr);
+
+vir_addr_t link_nppage(phy_addr_t addr, size_t size);
 
 void page_fault(
     u32 int_num, u32 code,

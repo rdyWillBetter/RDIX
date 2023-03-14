@@ -2,7 +2,6 @@
 #include <common/io.h>
 #include <rdix/kernel.h>
 
-
 #define GET_TRANSCATION(bus, device, function, register, type) \
 (0x80000000 | (bus << 16) | ((device & 0x1f) << 11) | ((function & 7) << 8) | (register & 0xFC) | (type & 3))
 
@@ -20,13 +19,53 @@ static PCI_tree_t *new_pci_tree(){
     return master;
 }
 
-static u32 read_register(u8 bus, u8 dev_num, u8 function, u8 reg){
+u32 read_register(u8 bus, u8 dev_num, u8 function, u8 reg){
     /* 访问非直接接在 PCI 主桥上的设备时( bus != 0 )，需要使用 Type 1 格式的寻址指令访问 */
     u8 type = bus > 0 ? 1 : 0;
     u32 addr = GET_TRANSCATION(bus, dev_num, function, reg, type);
 
     port_outd(PCI_CONFIG_ADDRESS, addr);
     return port_ind(PCI_CONFIG_DATA);
+}
+
+void write_register(u8 bus, u8 dev_num, u8 function, u8 reg, u32 data){
+    u8 type = bus > 0 ? 1 : 0;
+    u32 addr = GET_TRANSCATION(bus, dev_num, function, reg, type);
+
+    port_outd(PCI_CONFIG_ADDRESS, addr);
+    port_outd(PCI_CONFIG_DATA, data);
+}
+
+static void get_bar_and_size(bar_entry *bar, u32 bus, u8 dev_num, u8 function, u8 bar_idx){
+    u8 reg = 0x10 + bar_idx * 4;
+    u32 addr = GET_TRANSCATION(bus, dev_num, function, reg, bus > 0 ? 1 : 0);
+
+    port_outd(PCI_CONFIG_ADDRESS, addr);
+
+    bar->base_addr = port_ind(PCI_CONFIG_DATA);
+
+    port_outd(PCI_CONFIG_DATA, 0xffffffff);
+
+    bar->size = port_ind(PCI_CONFIG_DATA);
+
+    port_outd(PCI_CONFIG_DATA, bar->base_addr);
+
+        /* bar 中第 0 位是 0 代表指向的是内存空间，配置项为后四位。
+     * 为 1 代表指向的是 IO 空间，配置项为后两位。 */
+    if (bar->base_addr & 1){
+        /* IO */
+        bar->size &= 0xfffffffc;
+        bar->type = bar->base_addr & 0x3;
+        bar->base_addr &= 0xfffffffc;
+    }
+    else {
+        /* memory */
+        bar->size &= 0xfffffff0;
+        bar->type = bar->base_addr & 0xf;
+        bar->base_addr &= 0xfffffff0;
+    }
+
+    bar->size = (~bar->size) + 1;
 }
 
 static device_t *device_probe(List_t **list, u8 bus, u8 dev_num, u8 function){
@@ -39,12 +78,26 @@ static device_t *device_probe(List_t **list, u8 bus, u8 dev_num, u8 function){
     if (!(*list))
         *list = new_list();
 
-    u32 *Cspace = (u32 *)malloc(256);
+    device_t *Cspace = (device_t *)malloc(sizeof(device_t));
 
-    Cspace[0] = data;
+    Cspace->bus = bus;
+    Cspace->dev_num = dev_num;
+    Cspace->function = function;
 
-    for (int i = 1; i < 256 / sizeof(u32); ++i){
-        Cspace[i] = read_register(bus, dev_num, function, i * sizeof(u32));
+    Cspace->vectorID = data & 0xffff;
+    Cspace->deviceID = (data >> 16) & 0xffff;
+
+    data = read_register(bus, dev_num, function, 0x8);
+
+    Cspace->revisionID = data & 0xff;
+    Cspace->Ccode = (data >> 8) & 0xffffff;
+
+    data = read_register(bus, dev_num, function, 0xc);
+
+    Cspace->header_type = (data >> 16) & 0xff;
+
+    for (int bar = 0; bar < 6; ++bar){
+        get_bar_and_size(&Cspace->BAR[bar], bus, dev_num, function, bar);
     }
 
     ListNode_t *node = new_listnode(Cspace, 0);
@@ -69,7 +122,7 @@ static void get_all_device(u8 bus, PCI_tree_t *tree){
         /* 桥设备 */
         if (device->header_type == 1){
             /* 取出下一个总线号 */
-            int secondary_bus_num = (u8)(device->BAR[2] >> 8);
+            int secondary_bus_num = (u8)(device->BAR[2].base_addr >> 8);
             tree->child = new_pci_tree();
             get_all_device(secondary_bus_num, tree->child);
         }
@@ -90,16 +143,42 @@ void PCI_init(){
 
 void PCI_info(){
     device_t *device = NULL;
+    bool probe = false;
 
     for (PCI_tree_t *tree_ptr = device_list; tree_ptr != NULL && tree_ptr->bus_num != -1; tree_ptr = tree_ptr->child){
 
         for (ListNode_t *node = tree_ptr->dev_list->end.next; node != &tree_ptr->dev_list->end; node = node->next){
 
             device = (device_t *)node->owner;
-            PCI_LOG_INFO("Bus number = %d, Vector ID = 0x%x, Device ID = 0x%x\n",\
-                        tree_ptr->bus_num, device->vectorID, device->deviceID);
+
+            probe = true;
+            PCI_LOG_INFO("Bus_%d | vid_%x | dev_%x | CC_%x\n\t\t\tbar6_%x | size_%x\n",\
+                        tree_ptr->bus_num, device->vectorID, device->deviceID, device->Ccode,\
+                        device->BAR[5].base_addr, device->BAR[5].size);
+            
+        }
+    }
+    /*
+    if (!probe){
+        PANIC("NO HBA\n");
+    }*/
+}
+
+device_t *get_device_info(u32 dev_cc){
+    device_t *device = NULL;
+    
+    for (PCI_tree_t *tree_ptr = device_list; tree_ptr != NULL && tree_ptr->bus_num != -1; tree_ptr = tree_ptr->child){
+
+        for (ListNode_t *node = tree_ptr->dev_list->end.next; node != &tree_ptr->dev_list->end; node = node->next){
+
+            device = (device_t *)node->owner;
+
+            if(device->Ccode == dev_cc){
+                return device;
+            }
+            
         }
     }
 
-    
+    return NULL;
 }

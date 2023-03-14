@@ -12,6 +12,8 @@
 #include <common/list.h>
 #include <common/stdio.h>
 #include <rdix/pci.h>
+#include <rdix/hba.h>
+#include <rdix/hardware.h>
 
 void handle_1(){
     char ch;
@@ -22,10 +24,8 @@ void handle_1(){
 }
 
 void user_1(){
-    char *m;
     while (true){
-        BMB;
-        printf("a\n");
+        //printf("a\n");
     }
 }
 
@@ -47,18 +47,22 @@ void kernel_init(u32 magic, u32 info){
     else if (magic == MULTIBOOT_OS_MAGIC)
         printk("###Boot by MULTIBOOT2###\n");
     
-    //printk("test\n");
+    printk("test\n");
+
+    IOAPICStructure *ioapic = _find_IOAPICS();
 
     gdt_init();
     mem_pg_init(magic,info);
-    task_init();
+    //task_init();
     interrupt_init();
     PCI_init();
     syscall_init();
-
-    set_IF(true);
-    task_create(handle_1, NULL, "test", 3, KERNEL_UID);
-    PCI_info();
+    
+    //task_create(handle_1, NULL, "test", 3, KERNEL_UID);
+    //PCI_info();
+    hba_init();
     //user_task_create(user_1, "user_1", 3);
     //task_create(handle_2, "test", 3, 0);
+    
+    set_IF(true);
 }

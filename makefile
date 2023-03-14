@@ -92,17 +92,23 @@ bochs: $(BUILD)/master.img
 bochsb: $(BUILD)/rdix.iso
 	bochs -q -f ./bochsrc.grub -unlock
 
+AHCI_DISK=-drive id=disk,file=../test.c,if=none \
+-device ahci,id=ahci \
+-device ide-hd,drive=disk,bus=ahci.0
+
+QEMU=-monitor stdio
+
 .PHONY: qemu
 qemu: $(BUILD)/master.img
-	qemu-system-i386 -m 32M -boot c -hda $< -s -S -nographic
+	qemu-system-i386 -m 32M -boot c -hda $< -s -S -nographic $(AHCI_DISK)
 
 .PHONY: qemub
 qemub: $(BUILD)/rdix.iso
-	qemu-system-i386 -m 32M -boot c -hda $< -s -S -nographic
+	qemu-system-i386 -m 32M -boot c -hda $< -s -S -nographic $(AHCI_DISK)
 
 .PHONY: qemu-g
 qemu-g: $(BUILD)/master.img
-	qemu-system-i386 -m 32M -boot c -hda $< -s -S
+	qemu-system-i386 -m 32M -boot c -hda $< -s -S $(AHCI_DISK)
 
 .PHONY: clean
 clean:

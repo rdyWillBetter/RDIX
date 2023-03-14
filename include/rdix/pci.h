@@ -12,6 +12,8 @@
 /* 指明该配置空间是 PCI 桥布局 */
 #define PCI_BRIDGE 0x1
 
+#define PCI_CONFIG_SPACE_CMD 0x4
+
 #define PCI_LOG_INFO(fmt, args...) logk("PCI INFO", fmt, ##args)
 
 typedef struct PCI_tree_t{
@@ -22,32 +24,31 @@ typedef struct PCI_tree_t{
     struct PCI_tree_t *child;
 } PCI_tree_t;
 
+typedef struct bar_entry{
+    u32 base_addr;
+    u32 size;
+    u8 type;
+} bar_entry;
+
 typedef struct device_t{
+    /* 该设备配置空间首地址 */
+    u32 bus;
+    u8 dev_num;
+    u8 function;
     u16 vectorID;
     u16 deviceID;
-    u16 command;
-    u16 status;
     u8 revisionID;
-    u32 Ccode : 24;
-    u8 cacheline_size;
-    u8 latency_timer;
+    u32 Ccode;
     u8 header_type;
-    u8 BIST;
-    u32 BAR[6];
-    u32 CCpointer;
-    u16 sub_vector_ID;
-    u16 sub_ID;
-    u32 ExROMbaddr;
-    u8 Capability_pointer;
-    u32 reserved1 : 24;
-    u32 reserved2;
-    u8 interrupt_line;
-    u8 interrupt_pin;
-    u8 min_gnt;
-    u8 max_lat;
-} _packed device_t;
+    bar_entry BAR[6];
+} device_t;
 
 void PCI_init();
 void PCI_info();
+
+u32 read_register(u8 bus, u8 dev_num, u8 function, u8 reg);
+void write_register(u8 bus, u8 dev_num, u8 function, u8 reg, u32 data);
+
+device_t *get_device_info(u32 dev_cc);
 
 #endif

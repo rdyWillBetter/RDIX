@@ -4,5 +4,6 @@
 #include <common/type.h>
 
 u8 bcd2bin(u8 bcd);
+void mdebug(void *data, size_t count);
 
 #endif

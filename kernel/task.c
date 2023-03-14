@@ -194,7 +194,7 @@ static void *kernel_to_user(){
 
     /* 用户进程的虚拟内存位图为 4KB，所管理的内存起始地址为 8M
      * 用户程序一共可使用的内存为 128M，也就是 8M 到 138M */
-    bitmap_init(current->vmap, alloc_kpage(1), PAGE_SIZE, 0x800);
+    bitmap_init(current->vmap, alloc_kpage(1), PAGE_SIZE, PAGE_IDX(KERNEL_MEMERY_SIZE));
 
     /* 分配栈空间 */
     for (page_idx_t i = PAGE_IDX(USER_STACK_BOTTOM); i < PAGE_IDX(USER_STACK_TOP); ++i){
