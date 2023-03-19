@@ -13,4 +13,6 @@ extern void port_outb(u16 port, u8 data);
 extern void port_outw(u16 port, u16 data);
 extern void port_outd(u16 port, u32 data);
 
+void iodelay();
+
 #endif

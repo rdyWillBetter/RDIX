@@ -3,13 +3,14 @@
 
 #include <common/type.h>
 
+//#define _INTERRUPT_PIC_MOD
+
 #define PIC_M_L 0x20 //8259A 端口号
 #define PIC_M_H 0x21
 #define PIC_S_L 0xA0
 #define PIC_S_H 0xA1
 
-#define PIC_M_START_INT_NUM 0x20 //主片起始中断号
-#define PIC_S_START_INT_NUM 0x28 //从片起始中断号
+#define START_INT_NUM 0x20 //起始中断号
 #define INTEL_INT_RESERVED 0x20 //intel 使用的前32个中断
 
 #define IRQ0_COUNTER 0x0 //计数器
@@ -48,11 +49,19 @@ typedef struct idt_pointer{
 void interrupt_init();
 void syscall_init();
 void keyboard_init();
-void set_int_handler(u32 irq, handler_t handler);
 void set_int_mask(u32 irq, bool enable);
-void sent_eoi(u32 int_num);
 bool get_IF();
 void set_IF(bool state);
 bool get_and_disable_IF();
+
+/* apic */
+enum  IOREDTBLFlags{
+    __IOREDTBL_MASK = (1 << 16),
+    __IOREDTBL_TRIGGER_MODE = (1 << 15),
+    __IOREDTBL_DES_MODE = (1 << 11),
+};
+
+void lapic_send_eoi();
+void install_int(u8 old_irq, u8 dest, u32 flag, handler_t handler);
 
 #endif

@@ -2,6 +2,9 @@
 #include <common/io.h>
 #include <rdix/kernel.h>
 
+#define PCI_LOG_INFO __LOG("[pci info]")
+#define PCI_WARNING_INFO __WARNING("[pci warning]")
+
 #define GET_TRANSCATION(bus, device, function, register, type) \
 (0x80000000 | (bus << 16) | ((device & 0x1f) << 11) | ((function & 7) << 8) | (register & 0xFC) | (type & 3))
 
@@ -142,26 +145,23 @@ void PCI_init(){
 }
 
 void PCI_info(){
-    device_t *device = NULL;
-    bool probe = false;
 
     for (PCI_tree_t *tree_ptr = device_list; tree_ptr != NULL && tree_ptr->bus_num != -1; tree_ptr = tree_ptr->child){
 
         for (ListNode_t *node = tree_ptr->dev_list->end.next; node != &tree_ptr->dev_list->end; node = node->next){
 
-            device = (device_t *)node->owner;
+            device_t *device = (device_t *)node->owner;
 
-            probe = true;
-            PCI_LOG_INFO("Bus_%d | vid_%x | dev_%x | CC_%x\n\t\t\tbar6_%x | size_%x\n",\
+            printk(PCI_LOG_INFO "Bus_%d; vid_%x; dev_%x; CC_%x; bar6_%x; size_%x\n",\
                         tree_ptr->bus_num, device->vectorID, device->deviceID, device->Ccode,\
                         device->BAR[5].base_addr, device->BAR[5].size);
-            
+
+            if (device->Ccode == 0x010601){
+                void *cap_list = read_register(device->bus, device->dev_num, device->function, 0x34);
+                printk(PCI_WARNING_INFO "hba Capabilities Pointer 0x%p\n", cap_list);
+            }
         }
     }
-    /*
-    if (!probe){
-        PANIC("NO HBA\n");
-    }*/
 }
 
 device_t *get_device_info(u32 dev_cc){

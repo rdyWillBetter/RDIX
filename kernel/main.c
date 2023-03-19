@@ -15,6 +15,9 @@
 #include <rdix/hba.h>
 #include <rdix/hardware.h>
 
+//#define SYS_LOG_INFO "\033[1;35;40][system info]\033[0]\t"
+#define SYS_LOG_INFO __LOG("[system]")
+
 void handle_1(){
     char ch;
     while (true){
@@ -24,16 +27,20 @@ void handle_1(){
 }
 
 void user_1(){
+    int i = 0;
     while (true){
-        //printf("a\n");
+        ++i;
+        if (i < 10)
+            printf("%d\n", i);
     }
 }
 
 void handle_2(){
-    char buf[10];
+    int i = 0;
     while (true){
-        keyboard_read(buf, 1);
-        printk("[handle_2 get string] %s\n", buf);
+        ++i;
+        if (i < 10)
+            printf("%d\n", i);
     }
 }
 
@@ -43,26 +50,29 @@ void kernel_init(u32 magic, u32 info){
     console_init();
     
     if (magic == RDIX_MAGIC)
-        printk("###Boot by RDIX LOADER###\n");
+        printk(SYS_LOG_INFO "Boot by RDIX LOADER\n");
     else if (magic == MULTIBOOT_OS_MAGIC)
-        printk("###Boot by MULTIBOOT2###\n");
-    
-    printk("test\n");
-
-    IOAPICStructure *ioapic = _find_IOAPICS();
+        printk(SYS_LOG_INFO "Boot by MULTIBOOT2\n");
 
     gdt_init();
+
+    /* acpi 的初始化必须放在分页模式开启之前，因为 apci 中的
+     * 结构体很有可能存在于后 2G 的物理地址。
+     * acpi_init 只要记录需要用到的寄存器物理地址就行了 */
+    acpi_init();
     mem_pg_init(magic,info);
-    //task_init();
     interrupt_init();
+    
+    BMB;
+    task_init();
     PCI_init();
     syscall_init();
     
-    //task_create(handle_1, NULL, "test", 3, KERNEL_UID);
+    //task_create(handle_1, NULL, "k0", 3, KERNEL_UID);
     //PCI_info();
     hba_init();
     //user_task_create(user_1, "user_1", 3);
-    //task_create(handle_2, "test", 3, 0);
+    task_create(handle_2, NULL, "test", 3, 0);
     
     set_IF(true);
 }

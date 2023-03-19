@@ -7,6 +7,8 @@
 #include <common/global.h>
 #include <rdix/memory.h>
 
+#define INT_LOG_INFO __LOG("[interrupt]")
+
 #define INT_SIZE 0x30
 #define IDT_SIZE 256
 
@@ -51,33 +53,20 @@ static char *int_message[] = {
     "#CP Control Protection Exception",
 };
 
-static void pic_init(){
-    //初始化8259A主片
-    //开始中断号为 0x20
-    //手动结束方式
-    port_outb(PIC_M_L, 0b00010001); //ICW1
-    port_outb(PIC_M_H, PIC_M_START_INT_NUM); //ICW2
-    port_outb(PIC_M_H, 0x04); //ICW3
-    port_outb(PIC_M_H, 0x01); //ICW4
+void set_ioredtbl(u8 irq, u8 dest, u32 flag, u8 vector);
 
-    //初始化8259A从片
-    //开始中断号为 0x28
-    //手动结束方式
-    port_outb(PIC_S_L, 0b00010001); //ICW1
-    port_outb(PIC_S_H, PIC_S_START_INT_NUM); //ICW2
-    port_outb(PIC_S_H, 0x02); //ICW3
-    port_outb(PIC_S_H, 0x01); //ICW4
+u8 irq_override(u8 old_irq);
 
-    //设置 OCW1 说明哪些外中断可用
-    port_outb(PIC_M_H, 0b11111111); //初始化时禁用所有外中断
-    port_outb(PIC_S_H, 0b11111111); //1 表明未开放
-}
+u32 _ioapic_reg_read(u32 offset);
 
-void sent_eoi(u32 int_num){
-    port_outb(PIC_M_L, 0b00100000);
-    if (int_num >= PIC_S_START_INT_NUM){
-        port_outb(PIC_S_L, 0b00100000);
-    }
+u32 _ioapic_reg_write(u32 offset, u32 data);
+
+void apic_init();
+
+/* 通过设置掩码禁用 8259a，禁用后才能用 apic */
+void disable_pic(){
+    port_outb(PIC_M_H, 0b11111111);
+    port_outb(PIC_S_H, 0b11111111);
 }
 
 static void sys_exception(
@@ -122,7 +111,7 @@ static void sys_exception(
  * ============================================================================= */
 static void default_exception(u32 int_num, u32 code){
     printk("default exception, in interrupt [0x%x]\n", int_num);
-    sent_eoi(int_num);
+    lapic_send_eoi();
 }
 
 static void idt_init(){
@@ -189,34 +178,23 @@ static void idt_init(){
     asm volatile("lidt p");
 }
 
-void set_int_handler(u32 irq, handler_t handler){
-    if (irq < 8){
-        interrupt_func_table[irq + PIC_M_START_INT_NUM] = handler;
-    }
-    else{
-        irq -= 8;
-        interrupt_func_table[irq + PIC_S_START_INT_NUM] = handler;
-    }
+void install_int(u8 old_irq, u8 dest, u32 flag, handler_t handler){
+    //u8 new_irq = irq_override(old_irq);
+    //u8 vector = new_irq + START_INT_NUM;
+
+    interrupt_func_table[old_irq + 0x20] = handler;
+    //set_ioredtbl(new_irq, dest, flag, vector);
 }
 
 void set_int_mask(u32 irq, bool enable){
-    if (irq < 8){
-        u8 mask = enable ? port_inb(PIC_M_H) & (~(1 << irq)) : port_inb(PIC_M_H) | (1 << irq);
-        port_outb(PIC_M_H, mask);
-    }
-    else{
-        if ((port_inb(PIC_M_H) & 0x04) && enable){
-            set_int_mask(IRQ2_CASCADE, true);
-        }
+    u8 new_irq = irq_override(irq);
+    u32 offset = new_irq * 2 + 0x10;
 
-        irq -= 8;
-        u8 mask = enable ? port_inb(PIC_S_H) & (~(1 << irq)) : port_inb(PIC_S_H) | (1 << irq);
-        port_outb(PIC_S_H, mask);
+    u32 lo = _ioapic_reg_read(new_irq * 2 + 0x10);
 
-        if (port_inb(PIC_S_H) == 0xff){
-            set_int_mask(IRQ2_CASCADE, false);
-        }
-    }
+    lo = enable ? lo & ~__IOREDTBL_MASK : lo | __IOREDTBL_MASK;
+
+    _ioapic_reg_write(offset, lo);
 }
 
 bool get_IF(){
@@ -247,8 +225,9 @@ bool get_and_disable_IF(){
 
 void interrupt_init(){
     idt_init(); //初始化 idt 中断表
-    pic_init(); //初始化 8259A 主片从片，关闭所有外中断
-    //clock_init();
+    apic_init();
+    
+    clock_init();
     //rtc_init();
-    keyboard_init();
+    //keyboard_init();
 }

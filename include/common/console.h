@@ -22,11 +22,31 @@
  *     |  7  |  6  |  5  |  4  |  3  |  2  |  1  |  0  |
  * 含义  闪烁 |  R  |  G  |  B  | 高亮 |  R |   G  |  B  |
  *           |      背景        |      |       前景     | */
-#define WORD_TYPE_DEFAULT   0b00000111 //灰白色
-#define WORD_TYPE_DEBUG     0b00001001
-#define WORD_TYPE_PANIC     0b10001100
-#define WORD_TYPE_LOG       0b00011111
-#define WORD_TYPE_ASSERT    0b01001111
+/* 默认颜色 */
+#define WORD_TYPE_DEFAULT   0b00000111
+
+#define COLOR_TYPE_BLINK 0x80
+#define COLOR_TYPE_HIGHLIGHT 0x8
+
+/* 前景色 */
+#define COLOR_TYPE_FORE_BLACK 0x0
+#define COLOR_TYPE_FORE_RED 0x4
+#define COLOR_TYPE_FORE_GREEN 0x2
+#define COLOR_TYPE_FORE_YELLOW 0x6
+#define COLOR_TYPE_FORE_BLUE 0x1
+#define COLOR_TYPE_FORE_PURPLE 0x5
+#define COLOR_TYPE_FORE_CYAN 0x3
+#define COLOR_TYPE_FORE_WHITE 0x7
+
+/* 背景色 */
+#define COLOR_TYPE_BACK_BLACK 0x0
+#define COLOR_TYPE_BACK_RED (0x4 << 4)
+#define COLOR_TYPE_BACK_GREEN (0x2 << 4)
+#define COLOR_TYPE_BACK_YELLOW (0x6 << 4)
+#define COLOR_TYPE_BACK_BLUE (0x1 << 4)
+#define COLOR_TYPE_BACK_PURPLE (0x5 << 4)
+#define COLOR_TYPE_BACK_CYAN (0x3 << 4)
+#define COLOR_TYPE_BACK_WHITE (0x7 << 4)
 
 /* 一个 tab 所占的空格数 */
 #define TABLE_SIZE 4
@@ -48,8 +68,8 @@ u16 get_cursor_position();
 void set_cursor_position(u16 cursor_position, bool clean);
 u16 get_screen_position();
 void set_screen_position(u16 screen_position);
-void console_put_char(char ch, u8 type);
-void console_put_string(const char* str, u8 type);
+void console_put_char(char ch);
+void console_put_string(const char* str);
 void keyboard_arrow(Arrow_t arrow);
 
 #endif

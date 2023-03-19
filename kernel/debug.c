@@ -12,21 +12,8 @@ void debugk(const char *file, int line, const char* fmt, ...){
     vsprintf(buf, fmt, arg);
     va_end(arg);
 
-    console_put_string("[DEBUG]", WORD_TYPE_DEBUG);
-    printk("\tfile [%s], line [%d]: %s", file, line, buf);
-}
-
-void logk(const char *info, const char* fmt, ...){
-    va_list arg;
-    va_start(arg, fmt);
-    vsprintf(buf, fmt, arg);
-    va_end(arg);
-
-    char buf_tmp[32];
-
-    vsprintf(buf_tmp, "[%s]", (va_list)&info);
-    console_put_string(buf_tmp, WORD_TYPE_LOG);
-    printk("\t%s", buf);
+    printk("\033[0;32;40]" "[DEBUG]" "\033[0]"\
+            "\tfile [%s], line [%d]: %s", file, line, buf);
 }
 
 void panic(const char *file, int line, const char* fmt, ...){
@@ -35,8 +22,8 @@ void panic(const char *file, int line, const char* fmt, ...){
     vsprintf(buf, fmt, arg);
     va_end(arg);
 
-    console_put_string("[PANIC]", WORD_TYPE_PANIC);
-    printk("\tfile [%s], line [%d]: %s", file, line, buf);
+    printk("\033[0]\033[1;31]" "[PANIC]" "\033[0]"\
+            "\tfile [%s], line [%d]: %s", file, line, buf);
 
     set_IF(false);
     asm volatile("hlt");

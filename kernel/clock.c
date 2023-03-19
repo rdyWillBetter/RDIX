@@ -21,7 +21,8 @@ static void clock_handler(u32 int_num, u32 code){
     assert(current->magic == RDIX_MAGIC);
 
     /* 不发送 eoi 的话下次外中断会被屏蔽 */
-    sent_eoi(int_num);
+    //sent_eoi(int_num);
+    lapic_send_eoi();
 
     current->jiffies = ++jiffies;
 
@@ -36,6 +37,6 @@ static void clock_handler(u32 int_num, u32 code){
 void clock_init(){
     jiffies = 0;
     pit_init();
-    set_int_handler(IRQ0_COUNTER, clock_handler);
-    set_int_mask(IRQ0_COUNTER, true);
+    
+    install_int(IRQ0_COUNTER, 0, 0, clock_handler);
 }

@@ -68,13 +68,17 @@ struct hba_port_t;
 typedef struct hba_dev_t{
     char sata_serial[21];
     u8 spd;
+    struct {
+        size_t size;    //数据所占扇区数
+        void *ptr;
+    } data; //发送或接收的数据
     send_status_t last_status;
 
     struct hba_port_t *port;
 } hba_dev_t;
 
 /* port 命令列表中头部类型 */
-typedef volatile struct cmd_list_slot{
+typedef struct cmd_list_slot{
     u8 CFL : 5;
     u8 flag_pwa : 3;
     u8 flag_rcbr : 4;
@@ -87,7 +91,7 @@ typedef volatile struct cmd_list_slot{
     u32 reserved2[4];
 } _packed cmd_list_slot;
 
-typedef volatile struct cmd_tab_item{
+typedef struct cmd_tab_item{
     /* dba 最后一位必须为 0（字对齐） */
     u32 dba;
     u32 dbau;
@@ -97,7 +101,7 @@ typedef volatile struct cmd_tab_item{
     u32 i : 1;
 } _packed cmd_tab_item;
 
-typedef volatile struct cmd_tab_t{
+typedef struct cmd_tab_t{
     u32 cfis[16];
     u32 acmd[4];
     u32 reserved[12];
@@ -123,6 +127,10 @@ typedef struct hba_t{
     u8 per_port_slot_cnt;
 } hba_t;
 
+/* 会被外部改变的值需要加上 volatile
+ * 比如这个结构体里的值会被 device 改变，编译器可能不知道
+ * 他可能会把值存在寄存器里，当腰读取的时候去寄存器里读，而不是这个内存空间
+ * 由此可能造成错误 */
 typedef volatile struct tagHBA_FIS
 {
 	// 0x00
@@ -151,7 +159,7 @@ typedef u32 slot_num;
 
 void hba_init();
 
-slot_num load_ata_cmd(hba_port_t *port, u16 **data, u8 cmd, u64 lba, u16 count);
+slot_num load_ata_cmd(hba_dev_t *dev, u8 cmd, u64 startlba, u16 count);
 send_status_t try_send_cmd(hba_port_t *port, slot_num slot);
 
 #endif

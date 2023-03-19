@@ -14,8 +14,6 @@
 
 #define PCI_CONFIG_SPACE_CMD 0x4
 
-#define PCI_LOG_INFO(fmt, args...) logk("PCI INFO", fmt, ##args)
-
 typedef struct PCI_tree_t{
     int32 bus_num;
     /* 当前总线的设备链表 */

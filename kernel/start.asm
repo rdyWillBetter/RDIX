@@ -21,6 +21,8 @@ times 64-($-$$) db 0
 extern kernel_init
 
 start:
+    cli
+
     mov esp, 0x20000
     push ebx
     push eax;系统魔数，目前没有用上

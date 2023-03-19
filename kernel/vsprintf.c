@@ -1,6 +1,7 @@
 #include <common/stdarg.h>
 #include <common/type.h>
 #include <common/string.h>
+#include <common/console.h>
 
 #define ZEROPAD 1  // 填充零
 #define SIGN 2     // 带符号数
@@ -15,7 +16,7 @@ bool is_digit(const char ch){
     return false;
 }
 
-static int skip_atoi(const char **s){
+int skip_atoi(const char **s){
     int i = 0;
     while (is_digit(**s)){
         i = i * 10 + **s - '0';
@@ -35,7 +36,7 @@ static char *number(char *str, unsigned long num, int base, int size, int precis
     int i = 0;
     char tmp[36], c = 0, sign = 0; // c 为填充的字符
     char *digit = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    char *small = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    char *small = "0123456789abcdefghijklmnopqrstuvwxyz";
 
     if (flags & SMALL){
         digit = small;

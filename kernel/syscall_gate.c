@@ -36,7 +36,7 @@ static u32 sys_test(u32 ebx, u32 ecx, u32 edx, u32 sys_vector){
 
 static int32 sys_write(fd_t fd, char *buf, u32 len, u32 sys_vector){
     if (fd == stdout || fd == stderr){
-        console_put_string(buf, WORD_TYPE_DEFAULT);
+        console_put_string(buf);
         return 0;
     }
 

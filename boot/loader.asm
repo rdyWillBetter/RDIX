@@ -36,6 +36,8 @@ _start:
     ;call Read_INIT_FAT32
     call Read_Disk
 
+    jc error
+
 memory_detect:
     mov ax,cs
     mov es,ax
@@ -56,6 +58,13 @@ m_next:
 
 error:
     mov si, error_message
+    call print
+
+    xchg bx, bx
+    shr ax, 8
+    call d2s
+    
+    mov si, str_proc
     call print
     
     cli
@@ -142,6 +151,30 @@ Read_Disk:
     pop si
     ret
 
+d2s:
+    push bx
+    push si
+    push di
+
+    xor si, si
+    mov bl, 0x10
+@loop_d2s:
+    and ax, 0xff
+    div bl
+    mov di, ax
+    shr di, 8
+    mov ah, [num_str + di]
+    mov [str_proc + si], ah
+    inc si
+    cmp al, 0
+    jne @loop_d2s
+
+    pop di
+    pop si
+    pop bx
+
+    ret
+
 print:
     mov ah,0xe
     .next:
@@ -173,12 +206,14 @@ protected_mode:
 
     mov ebx, mem_info_count + 0x10000   ;ebx 指向 int 0x13 返回的内存检测结果
     mov eax, LOADER_OS_MAGIC
-
+    
     jmp code_des: 0x20040
 
 loader_message db "loader success, by int 0x13",0x0d,0x0a,0
-error_message db "memory detecting error",0x0d,0x0a,0
+error_message db "load error",0x0d,0x0a,0
 error_loader db "[loader error]  ", 0
+str_proc times 16 db 0
+num_str db "0123456789ABCDEF"
 
 gdt_base:
     Descriptor 0,0,0
@@ -193,7 +228,7 @@ gdtr:
 DiskAddressPacket:
 	PacketSize db 0x10
 	Reserved db 0
-	BlockCount dw 0x60
+	BlockCount dw 0x70  ;单次读取上限为 0x7f(127) 个扇区
 	BufferOffset dw 0
 	BufferSeg dw 0x2000
 	BlockNum dq 20

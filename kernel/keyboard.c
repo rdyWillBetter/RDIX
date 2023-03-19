@@ -241,6 +241,7 @@ static bool capslock_state; //大写锁定
 static bool extcode_state; //扩展码状态
 
 void keyboard_hander(u32 int_num, u32 code){
+
     u32 scancode = port_inb(KEYBOARD_DATA_POAT);
     /* ext 表示按下的是否为扩展的扫描码 */
     u8 ext = 2;
@@ -302,7 +303,7 @@ void keyboard_hander(u32 int_num, u32 code){
     if (!list_isempty(waiter))
         unblock(waiter->end.next);
 End:
-    sent_eoi(int_num);
+    lapic_send_eoi();
 }
 
 size_t keyboard_read(char *buf, size_t count){
@@ -336,6 +337,5 @@ void keyboard_init(){
     waiter = new_list();
     lock = new_mutex();
     
-    set_int_handler(IRQ1_KEYBOARD, (void *)keyboard_hander);
-    set_int_mask(IRQ1_KEYBOARD, true);  //打开键盘中断
+    install_int(IRQ1_KEYBOARD, 0, 0, keyboard_hander);
 }

@@ -23,7 +23,15 @@ typedef struct ACPISDTHeader {
     u32 OEMRevision;
     u32 CreatorID;
     u32 CreatorRevision;
+    //u32 lapicAddr;
+    //u32 Flags;
 } _packed ACPISDTHeader;
+
+typedef struct MADTStructure{
+    ACPISDTHeader hd;
+    u32 lapicAddr;
+    u32 flags;
+} MADTStructure;
 
 typedef struct IOAPICStructure{
     u8 type;
@@ -36,6 +44,12 @@ typedef struct IOAPICStructure{
 
 RSDPDes_t *_find_RSDP();
 ACPISDTHeader *_find_RSDT();
-ACPISDTHeader *_find_MADT();
+MADTStructure *_find_MADT();
+
+void acpi_init();
+
+bool cpuHasMSR();
+void cpuGetMSR(u32 msr, u32 *lo, u32 *hi);
+void cpuSetMSR(u32 msr, u32 lo, u32 hi);
 
 #endif

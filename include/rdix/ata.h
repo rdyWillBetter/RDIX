@@ -3,6 +3,10 @@
 
 #include <common/type.h>
 
+typedef enum ATA_CMD_TYPE{
+	ATA_CMD_IDENTIFY_DEVICE = 0xec,
+} SATA_CMD_TYPE;
+
 typedef struct tagFIS_REG_H2D
 {
 	// DWORD 0
@@ -35,7 +39,7 @@ typedef struct tagFIS_REG_H2D
  
 	// DWORD 4
 	u8  rsv1[4];	// Reserved
-} FIS_REG_H2D;
+} _packed FIS_REG_H2D;
 
 typedef struct tagFIS_REG_D2H
 {

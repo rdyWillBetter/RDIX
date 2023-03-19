@@ -7,6 +7,8 @@
 #include <rdix/task.h>
 #include <common/interrupt.h>
 
+#define MEMORY_LOG_INFO __LOG("[memory info]")
+
 #define MEM_AVAILABLE_TYPE 1
 #define V_BIT_MAP_ADDR 0x4000 //虚拟内存管理表起始地址
 
@@ -82,11 +84,13 @@ static void memory_init(u32 magic, u32 info){
 
     start_io_memory = IO_MEM_START;
 
+    /*
     printk("before :mem_base = %#p, mem_size = %p\n", mem_base, mem_size);
     printk("before :total_page = %d, free_pages = %d\n", total_pages, free_pages);
+    */
 
     if (magic == RDIX_MAGIC){
-        printk("Meminfo from RDIX loader\n");
+        printk(MEMORY_LOG_INFO "Meminfo from RDIX loader\n");
 
         /* 内存检测结果条目数量 */
         u32 count = *(u32*)info;
@@ -113,7 +117,7 @@ static void memory_init(u32 magic, u32 info){
         }
     }
     else if (magic == MULTIBOOT_OS_MAGIC){
-        printk("Meminfo from MULTIBOOT\n");
+        printk(MEMORY_LOG_INFO "Meminfo from MULTIBOOT\n");
 
         /* multiboot 提供的 boot infomation */
         MFI_t *boot_info = (MFI_t *)info;
@@ -151,7 +155,7 @@ static void memory_init(u32 magic, u32 info){
         }
     }
 
-    printk("mem_base = %#p, mem_size = %p\n", mem_base, mem_size);
+    printk(MEMORY_LOG_INFO "accessible mem_base = %#p, mem_size = %p\n", mem_base, mem_size);
 
     /* 这两个 if 好像没什么必要，但也写上吧 */
     if (mem_base % PAGE_SIZE || mem_size % PAGE_SIZE){
@@ -418,6 +422,9 @@ page_entry_t *copy_pde(){
     return pde;
 }
 
+#define PAGE_LOG_INFO __LOG("page info")
+#define PAGE_ERROR_INFO __ERROR("[page error]")
+
 void page_fault(
     u32 int_num, u32 code,
     u32 edi, u32 esi, u32 ebp, u32 esp,
@@ -435,7 +442,7 @@ void page_fault(
         */  
         u32 vaddr = get_cr2();
 
-        printk("in page fault : vaddr = 0x%p\n", vaddr);
+        printk(PAGE_LOG_INFO "in page fault : vaddr = 0x%p\n", vaddr);
         /* USER_STACK_BOTTOM 后面一页不映射，用来引发中断，防止栈溢出 */
         assert(!(vaddr <= USER_STACK_BOTTOM && vaddr > (USER_STACK_BOTTOM - PAGE_SIZE)));
         assert(vaddr >= KERNEL_MEMERY_SIZE && vaddr < USER_STACK_TOP);
@@ -445,18 +452,18 @@ void page_fault(
             return;
         }
 
-        printk("\nEXCEPTION : PAGE FAULT \n");
-        printk("   VECTOR : 0x%02X\n", int_num);
-        printk("    ERROR : 0x%08X\n", error);
-        printk("   EFLAGS : 0x%08X\n", eflags);
-        printk("       CS : 0x%02X\n", cs);
-        printk("      EIP : 0x%08X\n", eip);
-        printk("      ESP : 0x%08X\n", esp);
-        printk("       DS : 0x%08X\n", ds);
-        printk("       ES : 0x%08X\n", es);
-        printk("       fS : 0x%08X\n", fs);
-        printk("       GS : 0x%08X\n", gs);
-        printk("      EAS : 0x%08X\n", eax);
+        printk(PAGE_ERROR_INFO "\nEXCEPTION : PAGE FAULT \n");
+        printk(PAGE_ERROR_INFO "   VECTOR : 0x%02X\n", int_num);
+        printk(PAGE_ERROR_INFO "    ERROR : 0x%08X\n", error);
+        printk(PAGE_ERROR_INFO "   EFLAGS : 0x%08X\n", eflags);
+        printk(PAGE_ERROR_INFO "       CS : 0x%02X\n", cs);
+        printk(PAGE_ERROR_INFO "      EIP : 0x%08X\n", eip);
+        printk(PAGE_ERROR_INFO "      ESP : 0x%08X\n", esp);
+        printk(PAGE_ERROR_INFO "       DS : 0x%08X\n", ds);
+        printk(PAGE_ERROR_INFO "       ES : 0x%08X\n", es);
+        printk(PAGE_ERROR_INFO "       fS : 0x%08X\n", fs);
+        printk(PAGE_ERROR_INFO "       GS : 0x%08X\n", gs);
+        printk(PAGE_ERROR_INFO "      EAS : 0x%08X\n", eax);
 
         // 阻塞
         while(true);

@@ -96,7 +96,7 @@ static void rtc_handler(u32 int_num, u32 code){
     tm.tm_sec);
 
     read_cmos(REG_C_ADDR); //读一下 C 寄存器，使其清零。不清空 C 就无法继续触发中断
-    sent_eoi(int_num);
+    lapic_send_eoi();
 }
 
 void rtc_init(){
@@ -105,6 +105,5 @@ void rtc_init(){
     write_cmos(REG_B_ADDR, read_cmos(REG_B_ADDR) | 0x10);//打开更新周期中断，1 秒一次
     read_cmos(REG_C_ADDR);
 
-    set_int_handler(IRQ8_RTC, rtc_handler);
-    set_int_mask(IRQ8_RTC, true);
+    install_int(IRQ8_RTC, 0, 0, rtc_handler);
 }
