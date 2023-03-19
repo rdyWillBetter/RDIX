@@ -422,7 +422,7 @@ page_entry_t *copy_pde(){
     return pde;
 }
 
-#define PAGE_LOG_INFO __LOG("page info")
+#define PAGE_LOG_INFO __LOG("[page info]")
 #define PAGE_ERROR_INFO __ERROR("[page error]")
 
 void page_fault(

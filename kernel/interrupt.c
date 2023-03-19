@@ -179,11 +179,11 @@ static void idt_init(){
 }
 
 void install_int(u8 old_irq, u8 dest, u32 flag, handler_t handler){
-    //u8 new_irq = irq_override(old_irq);
-    //u8 vector = new_irq + START_INT_NUM;
+    u8 new_irq = irq_override(old_irq);
+    u8 vector = new_irq + START_INT_NUM;
 
-    interrupt_func_table[old_irq + 0x20] = handler;
-    //set_ioredtbl(new_irq, dest, flag, vector);
+    interrupt_func_table[new_irq + 0x20] = handler;
+    set_ioredtbl(new_irq, dest, flag, vector);
 }
 
 void set_int_mask(u32 irq, bool enable){
@@ -229,5 +229,5 @@ void interrupt_init(){
     
     clock_init();
     //rtc_init();
-    //keyboard_init();
+    keyboard_init();
 }

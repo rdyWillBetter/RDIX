@@ -115,7 +115,7 @@ u32 _ioapic_reg_write(u32 offset, u32 data){
 }
 
 void set_ioredtbl(u8 irq, u8 dest, u32 flag, u8 vector){
-    u8 new_irq = irq_override(irq);
+    //u8 new_irq = irq_override(irq);
     u32 offset = irq * 2 + 0x10;
     flag &= 0x1ff00;
 
@@ -134,7 +134,7 @@ void ioapic_init(){
     printk(APIC_LOG_INFO "phy ioapic_addr %p\n", get_phy_addr(ioapic_addr));
     printk(APIC_LOG_INFO "phy ioapic_data %p\n", get_phy_addr(ioapic_data));
 
-    set_ioredtbl(2, 0, 0, 0x20);
+    //set_ioredtbl(0, 0, 0, 0x20);
     //set_ioredtbl(0, 0, 0, 0x20);
 }
 

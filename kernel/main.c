@@ -29,18 +29,17 @@ void handle_1(){
 void user_1(){
     int i = 0;
     while (true){
-        ++i;
-        if (i < 10)
+        if (i < 10){
+            ++i;
             printf("%d\n", i);
+        }
     }
 }
 
 void handle_2(){
     int i = 0;
     while (true){
-        ++i;
-        if (i < 10)
-            printf("%d\n", i);
+        printk("wo shi sha bi\n");
     }
 }
 
@@ -63,16 +62,15 @@ void kernel_init(u32 magic, u32 info){
     mem_pg_init(magic,info);
     interrupt_init();
     
-    BMB;
     task_init();
     PCI_init();
     syscall_init();
     
-    //task_create(handle_1, NULL, "k0", 3, KERNEL_UID);
+    task_create(handle_1, NULL, "k0", 3, KERNEL_UID);
     //PCI_info();
     hba_init();
-    //user_task_create(user_1, "user_1", 3);
-    task_create(handle_2, NULL, "test", 3, 0);
+    user_task_create(user_1, "user_1", 3);
+    //task_create(handle_2, NULL, "test", 3, 0);
     
     set_IF(true);
 }
