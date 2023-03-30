@@ -78,7 +78,19 @@ void acpi_init(){
     /* 此时 lapic_base 为物理地址 */
     //assert(cpu_get_lapic_base() == (u32)lapic_base);
 
+    /* 这段代码用于兼容 VB
+     * 在 VB 中，无法从 MADT 中读出 lapic 和 ioapic 的地址 */
+    /* if (lapic_base == 0)
+        lapic_base = 0xfee00000;
+    
+    if (ioapic_addr == 0)
+        ioapic_addr = 0xfec00000;
+
+    if (ioapic_data == 0)
+        ioapic_data = 0xfec00010; */
+
     printk(ACPI_LOG_INFO "lapic phy base 0x%p\n", lapic_base);
     printk(ACPI_LOG_INFO "ioapic io addr register base 0x%p\n", ioapic_addr);
     printk(ACPI_LOG_INFO "ioapic io data register base 0x%p\n", ioapic_data);
+    
 }

@@ -18,6 +18,10 @@ const char* sata_spd[4] = {
     "SATA III",
 };
 
+slot_num load_ata_cmd(hba_dev_t *dev, u8 cmd, u64 startlba, u16 count);
+
+send_status_t try_send_cmd(hba_port_t *port, slot_num slot);
+
 bool probe_hba(){
     hba = (hba_t *)malloc(sizeof(hba_t));
     
@@ -34,9 +38,15 @@ bool probe_hba(){
         return false;
     }
 
+    /* 初始化 MSI 中断 */
+    assert(__device_MSI_INIT(hba->dev_info, 0x33) == 0);
+
     u32 cmd = read_register(hba->dev_info->bus, hba->dev_info->dev_num,\
                     hba->dev_info->function, PCI_CONFIG_SPACE_CMD);
-    cmd |= ((1 << 1) | (1 << 10) | (1 << 2));
+
+    /* 启用 mmio 访问，启用设备间访问 */
+    cmd |= __PCI_CS_CMD_MMIO_ENABLE | __PCI_CS_CMD_BUS_MASTER_ENABLE;
+
     write_register(hba->dev_info->bus, hba->dev_info->dev_num,\
                     hba->dev_info->function, PCI_CONFIG_SPACE_CMD, cmd);
 
@@ -64,10 +74,13 @@ void hba_GHC_init(){
      * ============================================= */
     /* 开始初始化 hba 全局寄存器 GHC */
     /* 复位 */
-    /* 你复位个啥？ BIOS 好不容易初始化成功，你却复位他？ */
+    /* 你复位个啥？ BIOS 好不容易初始化成功，你却复位他?
+     * bios 会在 hba 的寄存器中帮你记录有哪些端口时可以使用的，初始化后这些信息就全没了 */
     //hba->io_base[REG_IDX(HBA_REG_GHC)] |= HBA_GHC_HR;
     /* 判断 hba 是否处于 AHCI 模式 */
     assert(hba->io_base[REG_IDX(HBA_REG_GHC)] & HBA_GHC_AE);
+    /* 启用 HBA 全局中断 */
+    hba->io_base[REG_IDX(HBA_REG_GHC)] |= HBA_GHC_IE;
     /* 每个端口命令列表中最多插槽 (slot) 数 */
     hba->per_port_slot_cnt = ((hba->io_base[REG_IDX(HBA_REG_CAP)] >> 8) & 0x1f) + 1;
 }
@@ -83,7 +96,7 @@ hba_port_t *new_port(int32 port_num){
     port->reg_base[REG_IDX(HBA_PORT_PxCMD)] &= ~HBA_PORT_CMD_ST;
     port->reg_base[REG_IDX(HBA_PORT_PxCMD)] &= ~HBA_PORT_CMD_FRE;
 
-    while (1){
+    while (true){
         if (port->reg_base[REG_IDX(HBA_PORT_PxCMD)] & HBA_PORT_CMD_FR)
             continue;
         if (port->reg_base[REG_IDX(HBA_PORT_PxCMD)] & HBA_PORT_CMD_CR)
@@ -113,6 +126,9 @@ hba_port_t *new_port(int32 port_num){
     /* FIS receive enable */
     port->reg_base[REG_IDX(HBA_PORT_PxCMD)] |= HBA_PORT_CMD_FRE;
 
+    /* 开中断 */
+    port->reg_base[REG_IDX(HBA_PORT_PxIE)] |= HBA_PORT_IE_DPE;
+
     /* 启动 hba 开始处理该端口对应命令链表 */
     port->reg_base[REG_IDX(HBA_PORT_PxCMD)] |= HBA_PORT_CMD_ST;
     
@@ -123,11 +139,48 @@ void prase_deviceinfo(hba_dev_t* dev, u16 *data){
 
     memcpy(dev->sata_serial, data + 10, 20);
     for (int i = 0; i < 20; i += 2){
-        char tmp = dev->sata_serial[i];
-        dev->sata_serial[i] = dev->sata_serial[i + 1];
-        dev->sata_serial[i + 1] = tmp;
+        swap(&dev->sata_serial[i], &dev->sata_serial[i + 1], 1);
     }
     dev->sata_serial[20] = '\0';
+    
+    memcpy(dev->model, data + 27, 40);
+    for (int i = 0; i < 40; i += 2){
+        swap(&dev->model[i], &dev->model[i + 1], 1);
+    }
+    dev->model[40] = '\0';
+
+    /* 28bit LBA 下可访问的最大逻辑扇区数 */
+    dev->max_lba = *(u32 *)(data + 60);
+
+    /* 逻辑扇区大小 */
+    dev->block_size = *(u32 *)(data + 117);
+
+    /* 全球唯一标识符 */
+    dev->wwn = *(u64 *)(data + 108);
+
+    /* 每个物理扇区包含的逻辑扇区数 */
+    dev->block_per_sec = 1 << (*(data + 106) & 0xf);
+
+    if (!dev->block_size)
+        dev->block_size = 512;
+
+    /* 支持 48bit LBA 指令 */
+    /* 具体参考 ACS-3/4.1.2/Table 7 */
+    if (*(data + 83) & 0x400){
+        /* 48bit LBA 下可访问的最大逻辑扇区数 */
+        dev->max_lba = *((u64 *)(data + 100));
+
+        if (*(data + 69) & 0x8)
+            dev->max_lba = *((u64 *)(data + 230));
+
+        dev->flags |= SATA_LBA_48_ENABLE;
+    }
+}
+
+send_status_t sata_send_cmd(hba_dev_t *dev, SATA_CMD_TYPE cmd, u64 startlba, u16 count){
+
+    slot_num slot = load_ata_cmd(dev, cmd, startlba, count);
+    return try_send_cmd(dev->port, slot);
 }
 
 hba_dev_t* new_hba_device(hba_port_t *port, u8 spd){
@@ -136,12 +189,17 @@ hba_dev_t* new_hba_device(hba_port_t *port, u8 spd){
     dev->spd = spd;
     dev->port = port;
 
-    /* 不知为何在 VM 中将内存调到 256M 就会造成读取错误
-     * 因为错误使用 sizeof */
-    slot_num slot = load_ata_cmd(dev, ATA_CMD_IDENTIFY_DEVICE, 0, 0);
-    dev->last_status = try_send_cmd(port, slot);
+    dev->flags = 0;
 
-    prase_deviceinfo(dev, dev->data.ptr);
+    dev->data = malloc(1024);
+
+    /* 不知为何在 VM 中将内存调到 256M 就会造成读取错误。
+     * 因为错误使用 sizeof */
+    dev->last_status = sata_send_cmd(dev, ATA_CMD_IDENTIFY_DEVICE, 0, 0);
+
+    prase_deviceinfo(dev, dev->data);
+
+    free(dev->data);
 
     return dev;
 }
@@ -183,6 +241,9 @@ void bulid_cmd_tab_fis(FIS_REG_H2D *fis, u8 cmd, u64 startlba, u16 count){
 
     if (cmd == ATA_CMD_IDENTIFY_DEVICE)
         fis->device = 0;
+    if (cmd == ATA_CMD_READ_DMA_EXT || cmd == ATA_CMD_READ_DMA || \
+        cmd == ATA_CMD_WRITE_DMA_EXT || cmd == ATA_CMD_WRITE_DMA)
+        fis->device = 1 << 6;
 
     fis->lba0 = (u8)startlba;
     fis->lba1 = (u8)(startlba >> 8);
@@ -199,7 +260,7 @@ void bulid_cmd_tab_fis(FIS_REG_H2D *fis, u8 cmd, u64 startlba, u16 count){
 /* CFL 为 CFIS 长度，单位为 dw
  * PRDTL 为 PRDT 表中描述符个数，也就是 item 个数
  * base 为 cmmand table 基地址 */
-void build_cmd_head(cmd_list_slot *cmd_head, u8 CFL, u16 PRDTL, u32 base){
+void build_cmd_head(cmd_list_slot *cmd_head, u8 CFL, u16 PRDTL, u32 base, u8 cmd){
     /* ===========================================
      * bug 调试记录
      * sizeof 最好跟类型名！不要跟变量，不然容易出错
@@ -219,7 +280,12 @@ void build_cmd_head(cmd_list_slot *cmd_head, u8 CFL, u16 PRDTL, u32 base){
 
     /* 设置后 hba 会自动清空 PxTFD.STS.BSY 和 PxCI 中的对应位 */
     /* 不要设置这里的 c 位，会导致数据接收失败！ */
-    //cmd_head->flag_rcbr = 0b0100;
+    /* if (cmd == ATA_CMD_WRITE_DMA_EXT)
+        cmd_head->flag_rcbr = 0b0100; */
+    
+    /* 如果是写操作，那么 W 标志位需要置位 */
+    if (cmd == ATA_CMD_WRITE_DMA_EXT || cmd == ATA_CMD_WRITE_DMA)
+        cmd_head->flag_pwa = 0b010;
 }
 
 /* count 为传输扇区数
@@ -243,7 +309,8 @@ u16 *build_cmd_tab_item(cmd_tab_item *item, void *data, size_t count){
     /* 最后一位必须是 1 */
     item->dbc = size - 1;
 
-    //item->i = 1;
+    /* 该条目传输完毕后产生中断 */
+    item->i = 1;
 
     return data;
 }
@@ -264,11 +331,12 @@ slot_num load_ata_cmd(hba_dev_t *dev, u8 cmd, u64 startlba, u16 count){
     if (free_slot == 32)
         return 32;
 
+    assert(dev->data != NULL);
     //***************************************
-    if (cmd == ATA_CMD_IDENTIFY_DEVICE) {
+    /* if (cmd == ATA_CMD_IDENTIFY_DEVICE) {
         dev->data.ptr = malloc(1024);
         dev->data.size = 2;
-    }
+    } */
 
     cmd_list_slot *cmd_head = &port->vPxCLB[free_slot];
     cmd_tab_t *cmd_tab = (u32 *)malloc(sizeof(cmd_tab_t) + sizeof(cmd_tab_item));
@@ -278,9 +346,9 @@ slot_num load_ata_cmd(hba_dev_t *dev, u8 cmd, u64 startlba, u16 count){
      * 在构建命令头的时候，CFL 的单位是 DW，也就是 CFL == 1 代表四个字节长度
      * 由于传入的时候没有除以 sizeof(u32) 导致 PxTFD.ERR 置一（任务文件错误）
      * ================================================== */
-    build_cmd_head(cmd_head, sizeof(FIS_REG_H2D) / sizeof(u32), 1, (u32)get_phy_addr(cmd_tab));
+    build_cmd_head(cmd_head, sizeof(FIS_REG_H2D) / sizeof(u32), 1, (u32)get_phy_addr(cmd_tab), cmd);
     bulid_cmd_tab_fis((FIS_REG_H2D *)cmd_tab, cmd, startlba, count);
-    build_cmd_tab_item(cmd_tab->item, dev->data.ptr, count);
+    build_cmd_tab_item(cmd_tab->item, dev->data, count);
 
     return free_slot;
 }
@@ -289,13 +357,17 @@ send_status_t try_send_cmd(hba_port_t *port, slot_num slot){
     if (port->reg_base[REG_IDX(HBA_PORT_PxSIG)] != SATA_DEV_SIG)
         return NOT_SATA;
 
-    time_t limit = 0x10000;
+    time_t limit = 0x100000;
     for (; port->reg_base[REG_IDX(HBA_PORT_PxTFD)] & HBA_PORT_TFD_BSY; --limit);
     if (!limit)
         return _BUSY;
 
+    /* 清空中断状态寄存器 */
+    port->reg_base[REG_IDX(HBA_PORT_PxIS)] = -1;
+
     port->reg_base[REG_IDX(HBA_PORT_PxCI)] |= 1 << slot;
-    limit = 0x10000;
+
+    limit = 0x100000;
     for(; (port->reg_base[REG_IDX(HBA_PORT_PxCI)] & (1 << slot)) && limit; --limit);
     
     if (!limit){
@@ -306,12 +378,50 @@ send_status_t try_send_cmd(hba_port_t *port, slot_num slot){
     return SUCCESSFUL;
 }
 
+/* RorW == true 时为读操作
+ * RorW == false 时为写操作 */
+int __sata_io(hba_dev_t *dev, void *buffer, u64 startlba, size_t size, bool RorW){
+    assert(startlba < dev->max_lba);
+
+    u8 cmd;
+
+    if (dev->flags & SATA_LBA_48_ENABLE){
+        cmd = RorW ? ATA_CMD_READ_DMA_EXT : ATA_CMD_WRITE_DMA_EXT;
+    }
+    else {
+        cmd = RorW ? ATA_CMD_READ_DMA : ATA_CMD_WRITE_DMA;
+    } 
+
+    dev->data = buffer;
+
+    dev->last_status = sata_send_cmd(dev, cmd, startlba, size);
+
+    if (dev->last_status == SUCCESSFUL)
+        return 0;
+    
+    return 1;
+}
+
+/* size 单位扇区 */
+int __sata_read_secs(hba_dev_t *dev, void *buffer, u64 startlba, size_t size){
+    return __sata_io(dev, buffer, startlba, size, true);
+}
+
+int __sata_write_secs(hba_dev_t *dev, void *buffer, u64 startlba, size_t size){
+    return __sata_io(dev, buffer, startlba, size, false);
+}
+
 static char *error_str[4] = {
     "SUCCESS",
     "NOT_SATA",
     "BUSY",
     "GENERAL_ERROR",
 };
+
+char *test_str = "the user data shall be written to \n"\
+            "non-volatile media before command completion is reported\n"\
+            " regardless of whether or not volatile and/or \n"\
+            "non-volatile write caching in the device is enabled.\n";
 
 void hba_init(){
     int dev_num = 0;
@@ -327,10 +437,43 @@ void hba_init(){
     for (ListNode_t *node = devices->end.next; node != &devices->end; node = node->next, ++dev_num){
         hba_dev_t *dev = (hba_dev_t *)node->owner;
 
-        if (dev->last_status == SUCCESSFUL)
+        if (dev->last_status == SUCCESSFUL){
             printk(HBA_LOG_INFO "(device %d) sata serial_%s\n", dev_num, dev->sata_serial);
-
+            printk(HBA_LOG_INFO "(device %d) sata model_%s\n", dev_num, dev->model);
+            printk(HBA_LOG_INFO "(device %d) sata maxLBA_%x\n", dev_num, dev->max_lba);
+            printk(HBA_LOG_INFO "(device %d) sata blocksize_%d\n", dev_num, dev->block_size);
+            printk(HBA_LOG_INFO "(device %d) sata blockPerSec_%d\n", dev_num, dev->block_per_sec);
+            if (dev->flags & SATA_LBA_48_ENABLE)
+                printk (HBA_LOG_INFO "support 48 LBA\n");
+            else
+                printk(HBA_LOG_INFO "do not support 48 LBA\n");
+        }
         else
             printk(HBA_LOG_INFO "(device %d) error code %s\n", dev_num, error_str[dev->last_status]);
+    }
+}
+
+void disk_test(){
+    // 尝试读取扇区
+    void *buf = malloc(1 << 9);
+
+    hba_dev_t *dev_test = (hba_dev_t *)hba->devices->end.next->owner;
+
+    if (__sata_write_secs(dev_test, test_str, 0x7000, 1) == 0){
+        printk(HBA_LOG_INFO "disk write success\n"); 
+    }
+    else{
+        printk("write error status: %s\n", error_str[dev_test->last_status]);
+    }
+
+    printk(HBA_LOG_INFO "before read disk\n");
+    mdebug(buf, 64);
+
+    if (__sata_read_secs(dev_test, buf, 0x7000, 1) == 0){
+            printk(HBA_LOG_INFO "disk read success\n");
+            mdebug(buf, 64);
+    }
+    else{
+        printk("read error status: %s\n", error_str[dev_test->last_status]);
     }
 }

@@ -4,7 +4,7 @@
 #include <common/type.h>
 #include <common/bitmap.h>
 
-#define KERNEL_MEMERY_SIZE 0x1600000
+#define KERNEL_MEMERY_SIZE 0x1000000
 #define IO_MEM_START 0x800000
 #define BIOS_MEM_SIZE 0x100000
 

@@ -96,10 +96,11 @@ void lapic_init(){
 u8 irq_override(u8 old_irq){
     for (size_t i = 0; i < irq_override_tab.size; ++i){
         if (old_irq == irq_override_tab.tab[i][0]){
-            old_irq = irq_override_tab.tab[i][1];
-            return;
+            return irq_override_tab.tab[i][1];
         }
     }
+
+    return old_irq;
 }
 
 u32 _ioapic_reg_read(u32 offset){

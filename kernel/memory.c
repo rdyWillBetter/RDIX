@@ -39,20 +39,19 @@ static phy_addr_t get_p_page(){
     bool state = get_and_disable_IF();
 
     for (page_idx_t i = start_available_p_page_idx; i < total_pages; ++i){
+        if (free_pages == 0)
+            PANIC("Out of Memory");
+
         if (p_bit_map[i])
             continue;
 
         p_bit_map[i] = 1;
-
-        if (free_pages == 0)
-            PANIC("Out of Memory");
 
         --free_pages;
 
         set_IF(state);
         return (void *)PAGE_ADDR(i);
     }
-    PANIC("Out of Memory");
 }
 
 /* 已做竞争保护
@@ -234,8 +233,8 @@ static _inline void  enable_page_mode(){
 /* 将物理页索引 pg_idx 写入页表表项类型数据结构 pte */
 void entry_init(page_entry_t *entry, page_idx_t pg_idx){
     *(u32 *)entry = 0;
-    entry->present = 1;
-    entry->write = 1;
+    entry->present = true;
+    entry->write = true;
     entry->user = 1;
     entry->index = pg_idx;
 }
@@ -255,6 +254,8 @@ static void page_mode_init(){
      * 一共映射了 8M 内存 */
     for (size_t pte_num = 0; pte_num < sizeof(kernel_page_table)/sizeof(u32); ++pte_num){
         page_entry_t *pte = (page_entry_t *)kernel_page_table[pte_num];
+
+        /* 页表页目录在申请的时候必须清空 */
         memset((void *)pte, 0, PAGE_SIZE);
         entry_init(&pde[pte_num], PAGE_IDX((u32)pte));  //在页目录表中填入页表占用信息
 
@@ -301,7 +302,7 @@ void _free_page(void *vaddr, u32 count){
 /* alloc_kpage 和 free_kpage 已经做了竞争保护
  * 只操作内核虚拟内存
  * count 单位为页
- * 从虚拟内存中申请一块长度为 count 的连续内存，返回内存起始地址指针 */
+ * 从内核内存中申请一块长度为 count 的连续内存，返回内存起始地址指针 */
 void *alloc_kpage(u32 count){
     bool IF_state = get_IF();
     set_IF(false);
@@ -348,13 +349,16 @@ static void flush_tlb(u32 vaddr){
 page_entry_t *get_pte(u32 vaddr, bool exist){
     page_entry_t *pde = PDE_L_ADDR;
     page_entry_t *pte_entry = &pde[DIDX(vaddr)];
+    page_entry_t *pte = PTE_L_ADDR(vaddr);
 
     if (!(pte_entry->present)){
         assert(exist == false);
         entry_init(pte_entry, PAGE_IDX((u32)get_p_page()));
-    }
         
-    page_entry_t *pte = PTE_L_ADDR(vaddr);
+        /* 新分配的页表必须清空，页目录也一样 */
+        memset(pte, 0, PAGE_SIZE);
+    }
+    
     flush_tlb((u32)pte);
 
     return pte;
@@ -403,23 +407,97 @@ void unlink_page(u32 vaddr){
 }
 
 phy_addr_t get_phy_addr(vir_addr_t vaddr){
-    *(char *)vaddr = '1';
     page_entry_t *pte = get_pte(vaddr, true);
     page_entry_t *entry = &pte[TIDX((u32)vaddr)];
+
+    /* 如果该页还没有建立映射，写入一个值触发缺页中断，完成映射 */
+    if (!entry->present)
+        *(char *)vaddr = 1;
 
     phy_addr_t tmp = (phy_addr_t)(PAGE_ADDR(entry->index) + ((u32)vaddr & 0xfff));
     return tmp;
 }
 
+/* page 必须为页表起始地址 */
+phy_addr_t copy_phy_page(vir_addr_t page){
+    assert(!((u32)page & 0xfff));
+    phy_addr_t paddr = get_p_page();
+    page_entry_t *entry = PTE_L_ADDR(0);
+
+    /* entry 指向页表起始位置，也搞好指向 0 地址对应的位置
+     * 因为拷贝操作要使用虚拟地址，因此必需要将物理地址映射后才能进行拷贝
+     * 这里选择 0 地址，因为该地址本身就不使用 */
+    entry_init(entry, PAGE_IDX((u32)paddr));
+    /* 修改当前页表的 entry 要马上刷新快表 */
+    flush_tlb(0);
+    memcpy((void *)0, (void *)page, PAGE_SIZE);
+
+    /* 要将 0 地址设为不存在，因为只是临时征用 */
+    entry->present = false;
+    flush_tlb(0);
+    return paddr;
+}
+
 page_entry_t *copy_pde(){
-    TCB_t *kernel = (TCB_t *)current_task()->owner;
+    TCB_t *task = (TCB_t *)current_task()->owner;
     page_entry_t *pde = (page_entry_t *)alloc_kpage(1);
-    memcpy(pde, kernel->pde, PAGE_SIZE);
+    memcpy((void *)pde, (void *)task->pde, PAGE_SIZE);
 
     page_entry_t *entry = &pde[1023];
     entry_init(entry, PAGE_IDX((u32)pde));
+    
+    for (size_t didx = 4; didx < 1024 - 1; ++didx){
+        page_entry_t *dentry = &pde[didx];
+        if (!dentry->present)
+            continue;
+        
+        /* 页目录中第 didx 项对应的页表地址 */
+        page_entry_t *pte = (page_entry_t *)(0xffc00000 | (didx << 12));
+
+        for (size_t tidx = 0; tidx < 1024; ++tidx){
+            entry = &pte[tidx];
+
+            if (!entry->present)
+                continue;
+
+            assert(0 < p_bit_map[entry->index] < 255);
+            entry->write = false;
+            ++p_bit_map[entry->index];
+        }
+
+        phy_addr_t paddr = copy_phy_page((vir_addr_t)pte);
+        dentry->index = PAGE_IDX((u32)paddr);
+    }
+
+    /* =====================================
+     * bug 调试记录
+     * 修改页表项 WRITE 选项后
+     * 忘记刷新快表导致重大问题！！！
+     * 而且这种问题不同机器表现不同，难以 debug ！ 
+     * =====================================*/
+    set_cr3(task->pde);
 
     return pde;
+}
+
+int32 sys_brk(vir_addr_t vaddr){
+    TCB_t *task = (TCB_t *)current_task()->owner;
+    u32 brk = (u32)vaddr;
+
+    assert(KERNEL_MEMERY_SIZE < brk < (USER_STACK_BOTTOM - PAGE_SIZE));
+
+    u32 old_brk = task->brk;
+
+    if (old_brk > brk){
+        for(u32 tmp_brk = brk; tmp_brk < old_brk; tmp_brk += PAGE_SIZE)
+            unlink_page(brk);
+    }
+    else if (PAGE_IDX(brk - old_brk) > free_pages)
+        PANIC("out of memory");
+    
+    task->brk = brk;
+
+    return 0;
 }
 
 #define PAGE_LOG_INFO __LOG("[page info]")
@@ -443,16 +521,55 @@ void page_fault(
         u32 vaddr = get_cr2();
 
         printk(PAGE_LOG_INFO "in page fault : vaddr = 0x%p\n", vaddr);
+
+        if (vaddr < 0x1000){
+            printk(PAGE_ERROR_INFO "Error accessing page zero\n");
+            goto ERROR;
+        }
+            
         /* USER_STACK_BOTTOM 后面一页不映射，用来引发中断，防止栈溢出 */
-        assert(!(vaddr <= USER_STACK_BOTTOM && vaddr > (USER_STACK_BOTTOM - PAGE_SIZE)));
-        assert(vaddr >= KERNEL_MEMERY_SIZE && vaddr < USER_STACK_TOP);
+        if(vaddr < USER_STACK_BOTTOM && vaddr >= (USER_STACK_BOTTOM - PAGE_SIZE)){
+            printk(PAGE_ERROR_INFO "stack reserved space visited\n");
+            goto ERROR;
+        }
+
+        if (!(vaddr >= KERNEL_MEMERY_SIZE && vaddr < USER_STACK_TOP)){
+            printk(PAGE_ERROR_INFO "visited space out of memory\n");
+            goto ERROR;
+        }
+
+        if(vaddr >= ((TCB_t *)current_task()->owner)->brk && vaddr < USER_STACK_BOTTOM){
+            printk(PAGE_ERROR_INFO "out of brk\n");
+            goto ERROR;
+        }
         
         if (!error.present){
             link_page(vaddr);
             return;
         }
+        else if(error.write){
+            page_entry_t *pte = get_pte(vaddr, true);
+            page_entry_t *entry = &pte[TIDX(vaddr)];
 
-        printk(PAGE_ERROR_INFO "\nEXCEPTION : PAGE FAULT \n");
+            assert(p_bit_map[entry->index] > 0);
+            if (p_bit_map[entry->index] == 1){
+                entry->write = true;
+                printk(PAGE_LOG_INFO "WRITE page for 0x%p\n", vaddr);
+            }
+            else{
+                --p_bit_map[entry->index];
+
+                phy_addr_t paddr = copy_phy_page(vaddr & 0xfffff000);
+                entry_init(entry, PAGE_IDX((u32)paddr));
+                flush_tlb(vaddr);
+
+                printk(PAGE_LOG_INFO "COPY page for 0x%p, phy page 0x%p\n", vaddr, paddr);
+            }
+
+            return;
+        }
+ERROR:
+        printk(PAGE_ERROR_INFO "   EXCEPTION : PAGE FAULT \n");
         printk(PAGE_ERROR_INFO "   VECTOR : 0x%02X\n", int_num);
         printk(PAGE_ERROR_INFO "    ERROR : 0x%08X\n", error);
         printk(PAGE_ERROR_INFO "   EFLAGS : 0x%08X\n", eflags);

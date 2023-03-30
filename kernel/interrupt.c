@@ -9,7 +9,7 @@
 
 #define INT_LOG_INFO __LOG("[interrupt]")
 
-#define INT_SIZE 0x30
+#define INT_SIZE 0x40
 #define IDT_SIZE 256
 
 /* handle.asm 中设置的中断处理函数数组，需要加载到 idt 中
@@ -229,5 +229,8 @@ void interrupt_init(){
     
     clock_init();
     //rtc_init();
+    
+    /* 工控机上开启键盘中断会导致问题
+     * apic 中断下....因为 irq_override 的问题，导致 ioapic 没有正确设置。 */
     keyboard_init();
 }

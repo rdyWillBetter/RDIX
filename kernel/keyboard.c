@@ -241,7 +241,7 @@ static bool capslock_state; //大写锁定
 static bool extcode_state; //扩展码状态
 
 void keyboard_hander(u32 int_num, u32 code){
-
+    //printk("in int [%x]\n", int_num);
     u32 scancode = port_inb(KEYBOARD_DATA_POAT);
     /* ext 表示按下的是否为扩展的扫描码 */
     u8 ext = 2;
@@ -271,13 +271,9 @@ void keyboard_hander(u32 int_num, u32 code){
     /* 箭头按键传入的时扩展码和扫描码 */
     if (ext == 3){
         switch (scancode){
-            //上
             case KEY_PAD_8: keyboard_arrow(UP); break;
-            //下
             case KEY_PAD_2: keyboard_arrow(DOWN); break;
-            //左
             case KEY_PAD_4: keyboard_arrow(LEFT); break;
-            //右
             case KEY_PAD_6: keyboard_arrow(RIGHT); break;
 
             default: break;

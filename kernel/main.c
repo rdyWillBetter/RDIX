@@ -26,20 +26,24 @@ void handle_1(){
     }
 }
 
+#define __USER_LOG_INGO __LOG("[user mode]")
 void user_1(){
-    int i = 0;
-    while (true){
-        if (i < 10){
-            ++i;
-            printf("%d\n", i);
-        }
+    pid_t pid = fork();
+
+    if (pid == 0){
+        printf("child task\n");
     }
+    else if (pid != 0){
+        printf("parent task\n");
+    }
+    while (true);
 }
 
 void handle_2(){
     int i = 0;
     while (true){
         printk("wo shi sha bi\n");
+        sleep(500);
     }
 }
 
@@ -65,12 +69,15 @@ void kernel_init(u32 magic, u32 info){
     task_init();
     PCI_init();
     syscall_init();
-    
-    task_create(handle_1, NULL, "k0", 3, KERNEL_UID);
     //PCI_info();
     hba_init();
+    
+    task_create(handle_1, NULL, "k0", 3, KERNEL_UID);
     user_task_create(user_1, "user_1", 3);
     //task_create(handle_2, NULL, "test", 3, 0);
     
+    /* 开启外中断后才会进行调度 */
     set_IF(true);
+
+    //disk_test();
 }

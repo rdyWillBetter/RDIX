@@ -14,13 +14,15 @@ extern bitmap_t v_bit_map;
 extern time_t jiffies;
 extern tss_t tss;
 
-static TCB_t *task_table[TASK_NUM];
+static u32 task_cnt;
 
 List_t *block_list;
 List_t *sleep_list;
 List_t *ready_list;
 
 static ListNode_t *running_task;
+
+extern void interrupt_exit();
 
 /* 通过 _ofp 修饰取消栈针
  * 如果不取消栈针，在函数退出时会修改 esp (mov esp, ebp)
@@ -54,20 +56,10 @@ static void kernel_task_init(){
     TCB_t *kernel = (TCB_t *)KERNEL_TCB;
     void *stack = NULL;
 
-    memset(task_table, 0, sizeof(task_table));
-
     block_list = new_list();
     sleep_list = new_list();
     ready_list = new_list();
 
-    asm volatile(
-        "movl %%esp, %0\n"
-        :"=m"(stack)
-        :
-        :
-    );
-
-    kernel->stack = stack;
     kernel->state = TASK_RUNNING;
     kernel->priority = 3;
     kernel->ticks = kernel->priority;
@@ -76,11 +68,13 @@ static void kernel_task_init(){
     kernel->uid = 0;
     kernel->pde = 0x1000; //内核页目录，修改过memory.c后要注意这里可能出问题
     kernel->vmap = &v_bit_map; //内核虚拟内存位图，同上
+    kernel->brk = KERNEL_MEMERY_SIZE;
     kernel->magic = RDIX_MAGIC;
 
-    task_table[0] = kernel; //将内核加入任务队列
     /* 开始执行 */
     running_task = new_listnode(kernel, kernel->priority);
+
+    ++task_cnt;
 }
 
 ListNode_t *current_task(){
@@ -96,16 +90,11 @@ ListNode_t *task_create(task_program handle, void *param, const char *name, u32 
     task_stack_t *stack = (task_stack_t *)((u32)tcb + PAGE_SIZE - sizeof(task_stack_t));
     ListNode_t *node = new_listnode(tcb, priority);
 
-    for (int i = 0; i < TASK_NUM; ++i){
-        if (task_table[i] != NULL)
-            continue;
-        else{
-            task_table[i] = tcb;
-            break;
-        }
-        if (i == TASK_NUM - 1)
-            PANIC("Can not create more task!\n");
+    if (task_cnt >= TASK_NUM){
+        PANIC("Can not create more task!\n");
     }
+
+    ++task_cnt;
     
     /* edi 为指向传入参数结构体的指针 */
     stack->edi = (u32)param;
@@ -114,6 +103,8 @@ ListNode_t *task_create(task_program handle, void *param, const char *name, u32 
     stack->ebp = 0x4;
     stack->eip = handle;
 
+    tcb->pid = task_cnt;
+    tcb->ppid = 0;
     tcb->stack = stack;
     tcb->state = TASK_READY;
     tcb->priority = priority;
@@ -123,6 +114,7 @@ ListNode_t *task_create(task_program handle, void *param, const char *name, u32 
     tcb->uid = uid;
     tcb->pde = (page_entry_t *)0x1000; //内核页目录，修改过memory.c后要注意这里可能出问题
     tcb->vmap = &v_bit_map; //内核虚拟内存位图，同上
+    tcb->brk = KERNEL_MEMERY_SIZE;
     tcb->magic = RDIX_MAGIC;
 
     list_push(ready_list, node);
@@ -176,9 +168,9 @@ void schedule(){
 
 /* 参数存放在 edi 中 */
 static void *kernel_to_user(){
+    intr_frame_t iframe;
     /* target 为用户程序入口地址 */
     user_target_t *target;
-    intr_frame_t iframe;
     void *kernel_stack = &iframe;
     TCB_t *current = (TCB_t *)current_task()->owner;
 
@@ -192,8 +184,8 @@ static void *kernel_to_user(){
     
     current->vmap = (bitmap_t *)malloc(sizeof(bitmap_t));
 
-    /* 用户进程的虚拟内存位图为 4KB，所管理的内存起始地址为 8M
-     * 用户程序一共可使用的内存为 128M，也就是 8M 到 138M */
+    /* 用户进程的虚拟内存位图为 4KB，所管理的内存起始地址为 16M
+     * 用户程序一共可使用的内存为 128M，也就是 16M 到 144M */
     bitmap_init(current->vmap, alloc_kpage(1), PAGE_SIZE, PAGE_IDX(KERNEL_MEMERY_SIZE));
 
     /* 分配栈空间 */
@@ -201,7 +193,7 @@ static void *kernel_to_user(){
         assert(bitmap_set(current->vmap, i, true) != EOF);
     }
 
-    current->pde = copy_pde();
+    current->pde = (page_entry_t *)copy_pde();
     set_cr3(current->pde);
 
     iframe.gs = 0;
@@ -236,7 +228,59 @@ void *user_task_create(user_target_t target, const char *name, u32 priority){
     /* 该进程结束时应当回收内存 */
     *container = target;
 
+    /* kernel_to_user 任务是用户进程进行任务切换的媒介
+     * kernel_to_user 的 TCB 就是用户进程的 TCB */
     task_create((task_program)kernel_to_user, (void *)container, name, priority, USER_UID);
+}
+
+/* fork 是用户进程的系统调用，使用的是中断门
+ * 进入后 cpu 会自动关中断，不需要关心竞态问题 */
+pid_t sys_fork(){
+    TCB_t *task = (TCB_t *)running_task->owner;
+    TCB_t *child = (TCB_t *)alloc_kpage(1);
+    
+    u32 ebp;
+    asm volatile(
+        "movl %%ebp, %0":"=m"(ebp)
+    );
+
+    /* 一共要向上走 ebp 和 eip 和 int0x80 传入的四个参数长度 */
+    intr_frame_t *child_frame = (intr_frame_t *)(ebp + sizeof(u32) * 6 - (u32)task + (u32)child);
+
+    /* 复制 TCB 以及内核栈 */
+    memcpy((void *)child, (void *)task, PAGE_SIZE);
+
+    child->pid = ++task_cnt;
+    child->ppid = task->pid;
+    child->ticks = child->priority;
+    child->state = TASK_READY;
+
+    child->vmap = malloc(sizeof(bitmap_t));
+    memcpy(child->vmap, task->vmap, sizeof(bitmap_t));
+
+    void *buf = (void *)alloc_kpage(1);
+    memcpy(buf, task->vmap->start, PAGE_SIZE);
+    child->vmap->start = buf;
+
+    child->pde = (page_entry_t *)copy_pde();
+
+    /* 子进程返回值为 0 */
+    child_frame->eax = 0;
+    task_stack_t *child_stack = (task_stack_t *)((u32)child_frame - sizeof(task_stack_t));
+
+    child_stack->ebp = RDIX_MAGIC;
+    child_stack->ebx = RDIX_MAGIC;
+    child_stack->edi = RDIX_MAGIC;
+    child_stack->esi = RDIX_MAGIC;
+
+    child_stack->eip = interrupt_exit;
+
+    child->stack = child_stack;
+
+    /* 将 child 进程加入 ready 队列 */
+    list_push(ready_list, new_listnode(child, child->priority));
+
+    return child->pid;
 }
 
 /* TCB 中状态值没有修改

@@ -1,6 +1,7 @@
 #include <rdix/pci.h>
 #include <common/io.h>
 #include <rdix/kernel.h>
+#include <common/assert.h>
 
 #define PCI_LOG_INFO __LOG("[pci info]")
 #define PCI_WARNING_INFO __WARNING("[pci warning]")
@@ -181,4 +182,102 @@ device_t *get_device_info(u32 dev_cc){
     }
 
     return NULL;
+}
+
+/* 返回能力链表指针 */
+cap_p_t capability_search(device_t *dev, u8 cap_id){
+    u8 capabilities = read_register(dev->bus, dev->dev_num, dev->function, PCI_CONFIG_SPACE_CAP_PTR) & 0xff;
+
+    if (capabilities == PCI_CAP_END_PTR)
+        return PCI_CAP_END_PTR;
+
+    cap_p_t cap_ptr = capabilities;
+    u32 cap_reg = read_register(dev->bus, dev->dev_num, dev->function, cap_ptr);
+
+    while (true){
+        if ((cap_reg & 0xff) == cap_id)
+            return cap_ptr;
+        
+        cap_ptr = (cap_reg >> 8) & 0xff;
+
+        if (cap_ptr == PCI_CAP_END_PTR)
+            break;
+        
+        cap_reg = read_register(dev->bus, dev->dev_num, dev->function, cap_ptr);
+    }
+
+    return PCI_CAP_END_PTR;
+}
+
+/* 初始化 PCI 设备配置空间能力链表中的 MSI 能力 */
+int __device_MSI_INIT(device_t *dev, u8 vector){
+    u32 cmd = read_register(dev->bus, dev->dev_num,\
+                            dev->function, PCI_CONFIG_SPACE_CMD);
+    
+    /* 要使用 MSI，首先要屏蔽传统中断引脚 */
+    cmd |= __PCI_CS_CMD_BUS_INT_DISABLE;
+
+    write_register(dev->bus, dev->dev_num,\
+                dev->function, PCI_CONFIG_SPACE_CMD, cmd);
+    
+    cap_p_t cap_p = capability_search(dev, PCI_CAP_ID_MSI);
+
+    if (cap_p == PCI_CAP_END_PTR)
+        return -1;
+
+    u32 reg = read_register(dev->bus,\
+                            dev->dev_num,
+                            dev->function,
+                            cap_p);
+
+    assert((reg & 0xff) == PCI_CAP_ID_MSI);
+    /* 启用 MSI */
+    reg |= (1 << 16);
+
+    write_register(dev->bus,\
+                dev->dev_num,
+                dev->function,
+                cap_p, reg);
+    
+    printk(PCI_LOG_INFO "reg %x\n", reg);
+
+    u8 msg_data_p = cap_p;
+    u8 msg_addr_p = cap_p + 0x4;
+    /* 检测是否支持 64 位 */
+    if (reg & (1 << 23)){
+        /* 支持 64位 */
+        msg_data_p += 0xc;
+
+        write_register(dev->bus,\
+                    dev->dev_num,
+                    dev->function,
+                    0x8, 0);
+    }
+    else{
+        msg_data_p += 0x8;
+    }
+    
+    u32 msg_data = read_register(dev->bus,\
+                            dev->dev_num,
+                            dev->function,
+                            msg_data_p);
+    
+    printk(PCI_LOG_INFO "msg_data %x\n", msg_data);
+
+    /* edge, fixed */
+    msg_data = vector;
+
+    u32 msg_addr = 0xfee00000;
+
+    write_register(dev->bus,\
+                dev->dev_num,
+                dev->function,
+                msg_data_p, msg_data);
+
+    write_register(dev->bus,\
+                dev->dev_num,
+                dev->function,
+                msg_addr_p, msg_addr);
+
+    return 0;
 }

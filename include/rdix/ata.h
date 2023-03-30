@@ -3,8 +3,14 @@
 
 #include <common/type.h>
 
+#define SATA_LBA_48_ENABLE 1
+
 typedef enum ATA_CMD_TYPE{
 	ATA_CMD_IDENTIFY_DEVICE = 0xec,
+	ATA_CMD_READ_DMA = 0xc8,
+	ATA_CMD_READ_DMA_EXT = 0x25,
+	ATA_CMD_WRITE_DMA = 0xca,
+	ATA_CMD_WRITE_DMA_EXT = 0x35,
 } SATA_CMD_TYPE;
 
 typedef struct tagFIS_REG_H2D

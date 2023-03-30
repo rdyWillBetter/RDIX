@@ -12,7 +12,21 @@
 /* 指明该配置空间是 PCI 桥布局 */
 #define PCI_BRIDGE 0x1
 
+/* 配置空间寄存器地址 */
 #define PCI_CONFIG_SPACE_CMD 0x4
+#define PCI_CONFIG_SPACE_CAP_PTR 0x34
+
+/* 能力链表中的能力id */
+#define PCI_CAP_ID_MSI 0x5
+
+/* 能力链表尾指针 */
+#define PCI_CAP_END_PTR 0
+
+enum PCI_CS_CMD_FLAGS{
+    __PCI_CS_CMD_MMIO_ENABLE = (1 << 1),
+    __PCI_CS_CMD_BUS_MASTER_ENABLE = (1 << 2),
+    __PCI_CS_CMD_BUS_INT_DISABLE = (1 << 10),
+};
 
 typedef struct PCI_tree_t{
     int32 bus_num;
@@ -48,5 +62,11 @@ u32 read_register(u8 bus, u8 dev_num, u8 function, u8 reg);
 void write_register(u8 bus, u8 dev_num, u8 function, u8 reg, u32 data);
 
 device_t *get_device_info(u32 dev_cc);
+
+typedef u8 cap_p_t;
+
+cap_p_t capability_search(device_t *dev, u8 cap_id);
+
+int __device_MSI_INIT(device_t *dev, u8 vector);
 
 #endif

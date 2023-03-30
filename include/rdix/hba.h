@@ -23,7 +23,7 @@
 #define HBA_PORT_BASE 0x100
 #define HBA_PORT_SIZE 0x80
 
-/* 获取端口在 hba->io_base 中的索引 */
+/* 获取端口在 port->reg_base 中的索引 */
 #define HBA_PORT_PxCLB 0x0
 #define HBA_PORT_PxCLBU 0x4
 #define HBA_PORT_PxFB 0x8
@@ -48,6 +48,7 @@
 #define HBA_PORT_CMD_FR (1 << 14)
 #define HBA_PORT_CMD_CR (1 << 15)
 #define HBA_PORT_TFD_BSY (1 << 7)
+#define HBA_PORT_IE_DPE (1 << 5)
 
 /* fis 类型 */
 #define FIS_RH2D 0x27
@@ -67,11 +68,15 @@ struct hba_port_t;
 /* 接在 hba 端口上的设备类型 */
 typedef struct hba_dev_t{
     char sata_serial[21];
+    char model[41];
+    u32 flags;
+    u64 max_lba;    //可访问的最大逻辑扇区数
+    u32 block_size; //逻辑扇区大小
+    u32 block_per_sec;  //每个物理扇区包含的逻辑扇区数
+    u64 wwn;        //全球唯一标识符
+
     u8 spd;
-    struct {
-        size_t size;    //数据所占扇区数
-        void *ptr;
-    } data; //发送或接收的数据
+    void *data;
     send_status_t last_status;
 
     struct hba_port_t *port;
@@ -159,7 +164,6 @@ typedef u32 slot_num;
 
 void hba_init();
 
-slot_num load_ata_cmd(hba_dev_t *dev, u8 cmd, u64 startlba, u16 count);
-send_status_t try_send_cmd(hba_port_t *port, slot_num slot);
+
 
 #endif

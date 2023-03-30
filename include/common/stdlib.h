@@ -5,5 +5,6 @@
 
 u8 bcd2bin(u8 bcd);
 void mdebug(void *data, size_t count);
+void swap(void *a, void *b, size_t size);
 
 #endif

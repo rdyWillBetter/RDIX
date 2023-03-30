@@ -37,6 +37,8 @@ interrupt_exit:
 
     add esp,8
     ;xchg bx,bx
+    ;使用 iret 返回到用户态时，会自动切换栈
+    ;而在同优先级下跳转时，只会恢复 flags 和 cs:ip
     iret
 
 SYS_EXCEPTION 0x0, 0
@@ -87,6 +89,22 @@ SYS_EXCEPTION 0x2c, 0
 SYS_EXCEPTION 0x2d, 0
 SYS_EXCEPTION 0x2e, 0
 SYS_EXCEPTION 0x2f, 0
+SYS_EXCEPTION 0x30, 0
+SYS_EXCEPTION 0x31, 0
+SYS_EXCEPTION 0x32, 0
+SYS_EXCEPTION 0x33, 0
+SYS_EXCEPTION 0x34, 0
+SYS_EXCEPTION 0x35, 0
+SYS_EXCEPTION 0x36, 0
+SYS_EXCEPTION 0x37, 0
+SYS_EXCEPTION 0x38, 0
+SYS_EXCEPTION 0x39, 0
+SYS_EXCEPTION 0x3a, 0
+SYS_EXCEPTION 0x3b, 0
+SYS_EXCEPTION 0x3c, 0
+SYS_EXCEPTION 0x3d, 0
+SYS_EXCEPTION 0x3e, 0
+SYS_EXCEPTION 0x3f, 0
 
 [section .data]
 handler_table:
@@ -137,7 +155,23 @@ handler_table:
     dd SYS_INTERRUPT_0x2c,
     dd SYS_INTERRUPT_0x2d,
     dd SYS_INTERRUPT_0x2e,
-    dd SYS_INTERRUPT_0x2f
+    dd SYS_INTERRUPT_0x2f,
+    dd SYS_INTERRUPT_0x30,
+    dd SYS_INTERRUPT_0x31,
+    dd SYS_INTERRUPT_0x32,
+    dd SYS_INTERRUPT_0x33,
+    dd SYS_INTERRUPT_0x34,
+    dd SYS_INTERRUPT_0x35,
+    dd SYS_INTERRUPT_0x36,
+    dd SYS_INTERRUPT_0x37,
+    dd SYS_INTERRUPT_0x38,
+    dd SYS_INTERRUPT_0x39,
+    dd SYS_INTERRUPT_0x3a,
+    dd SYS_INTERRUPT_0x3b,
+    dd SYS_INTERRUPT_0x3c,
+    dd SYS_INTERRUPT_0x3d,
+    dd SYS_INTERRUPT_0x3e,
+    dd SYS_INTERRUPT_0x3f,
 
 extern syscall_table;主体方法函数
 extern syscall_check;确认调用号 eax 是否正确
@@ -153,6 +187,9 @@ syscall_handle:
     push eax
     call syscall_check
     add esp, 4
+
+    push 0x01011017 ;error
+    push 0x80       ;vector0
 
     push ds
     push es
@@ -176,5 +213,7 @@ syscall_handle:
     pop fs
     pop es
     pop ds
+
+    add esp, 8
 
     iret

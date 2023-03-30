@@ -43,6 +43,9 @@ static int32 sys_write(fd_t fd, char *buf, u32 len, u32 sys_vector){
     return -1;
 }
 
+extern int32 sys_brk(vir_addr_t vaddr);
+extern pid_t sys_fork();
+
 void syscall_init(){
 
     for (int i = 0; i < SYSCALL_NUM; ++i){
@@ -52,4 +55,6 @@ void syscall_init(){
     syscall_table[SYS_NR_TEST] = (syscall_gate_t)sys_test;
     syscall_table[SYS_NR_SLEEP] = (syscall_gate_t)task_sleep;
     syscall_table[SYS_NR_WRITE] = (syscall_gate_t)sys_write;
+    syscall_table[SYS_NR_BRK] = (syscall_gate_t)sys_brk;
+    syscall_table[SYS_NR_FORK] = (syscall_gate_t)sys_fork;
 }

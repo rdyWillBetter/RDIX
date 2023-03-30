@@ -56,3 +56,11 @@ void sleep(time_t ms){
 int32 write(fd_t fd, char *buf, size_t len){
     return (int32)_syscall3(SYS_NR_WRITE, fd, (u32)buf, len);
 }
+
+int32 brk(void *vaddr){
+    return (int32)_syscall1(SYS_NR_BRK, vaddr);
+}
+
+pid_t fork(){
+    return _syscall0(SYS_NR_FORK);
+}
