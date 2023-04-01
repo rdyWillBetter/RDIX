@@ -106,12 +106,12 @@ void gdt_init(){
         "movw %0, %%es\n"
         "movw %0, %%fs\n"
         "movw %0, %%gs\n"
-        "pushl %1\n"
+        "pushw %1\n"
         "pushl $ret\n"
         "ljmp *(%%esp)\n"   /* AT&T 用寄存器指向的内存作为跳转地址需要加 * 号 */
         "ret:\n"
-        "popl %1\n"
-        "popl %1\n"
+        "popw %1\n"
+        "popw %1\n"
         :
         :"a"(kernel_data_selector),"b"(kernel_code_selector)
     );

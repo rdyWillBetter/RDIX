@@ -92,7 +92,7 @@ bochs: $(BUILD)/master.img
 bochsb: $(BUILD)/rdix.iso
 	bochs -q -f ./bochsrc.grub -unlock
 
-AHCI_DISK=-drive id=disk,file=../test.c,if=none \
+AHCI_DISK=-drive id=disk,file=./test.c,if=none \
 -device ahci,id=ahci \
 -device ide-hd,drive=disk,bus=ahci.0
 
