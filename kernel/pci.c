@@ -72,7 +72,7 @@ static void get_bar_and_size(bar_entry *bar, u32 bus, u8 dev_num, u8 function, u
     bar->size = (~bar->size) + 1;
 }
 
-static device_t *device_probe(List_t **list, u8 bus, u8 dev_num, u8 function){
+static pci_device_t *device_probe(List_t **list, u8 bus, u8 dev_num, u8 function){
     u32 data = read_register(bus, dev_num, function, 0);
 
     if (!DEVICE_EXIST((u16)data))
@@ -82,7 +82,7 @@ static device_t *device_probe(List_t **list, u8 bus, u8 dev_num, u8 function){
     if (!(*list))
         *list = new_list();
 
-    device_t *Cspace = (device_t *)malloc(sizeof(device_t));
+    pci_device_t *Cspace = (pci_device_t *)malloc(sizeof(pci_device_t));
 
     Cspace->bus = bus;
     Cspace->dev_num = dev_num;
@@ -107,7 +107,7 @@ static device_t *device_probe(List_t **list, u8 bus, u8 dev_num, u8 function){
     ListNode_t *node = new_listnode(Cspace, 0);
     list_pushback(*list, node);
 
-    return (device_t *)Cspace;
+    return (pci_device_t *)Cspace;
 }
 
 /* 获取总线号 bus 上的全部设备 */
@@ -118,7 +118,7 @@ static void get_all_device(u8 bus, PCI_tree_t *tree){
     for (size_t dev_num = 0; dev_num < 32; ++dev_num){
 
         /* 探测一个设备，如果存在，就将其并入设备链表，否则什么都不做，并返回 NULL */
-        device_t *device = device_probe(&tree->dev_list, bus, dev_num, 0);
+        pci_device_t *device = device_probe(&tree->dev_list, bus, dev_num, 0);
 
         if (!device)
             continue;
@@ -151,28 +151,28 @@ void PCI_info(){
 
         for (ListNode_t *node = tree_ptr->dev_list->end.next; node != &tree_ptr->dev_list->end; node = node->next){
 
-            device_t *device = (device_t *)node->owner;
+            pci_device_t *device = (pci_device_t *)node->owner;
 
             printk(PCI_LOG_INFO "Bus_%d; vid_%x; dev_%x; CC_%x; bar6_%x; size_%x\n",\
                         tree_ptr->bus_num, device->vectorID, device->deviceID, device->Ccode,\
                         device->BAR[5].base_addr, device->BAR[5].size);
 
-            if (device->Ccode == 0x010601){
+            /* if (device->Ccode == 0x010601){
                 void *cap_list = read_register(device->bus, device->dev_num, device->function, 0x34);
                 printk(PCI_WARNING_INFO "hba Capabilities Pointer 0x%p\n", cap_list);
-            }
+            } */
         }
     }
 }
 
-device_t *get_device_info(u32 dev_cc){
-    device_t *device = NULL;
+pci_device_t *get_device_info(u32 dev_cc){
+    pci_device_t *device = NULL;
     
     for (PCI_tree_t *tree_ptr = device_list; tree_ptr != NULL && tree_ptr->bus_num != -1; tree_ptr = tree_ptr->child){
 
         for (ListNode_t *node = tree_ptr->dev_list->end.next; node != &tree_ptr->dev_list->end; node = node->next){
 
-            device = (device_t *)node->owner;
+            device = (pci_device_t *)node->owner;
 
             if(device->Ccode == dev_cc){
                 return device;
@@ -185,7 +185,7 @@ device_t *get_device_info(u32 dev_cc){
 }
 
 /* 返回能力链表指针 */
-cap_p_t capability_search(device_t *dev, u8 cap_id){
+cap_p_t capability_search(pci_device_t *dev, u8 cap_id){
     u8 capabilities = read_register(dev->bus, dev->dev_num, dev->function, PCI_CONFIG_SPACE_CAP_PTR) & 0xff;
 
     if (capabilities == PCI_CAP_END_PTR)
@@ -210,7 +210,7 @@ cap_p_t capability_search(device_t *dev, u8 cap_id){
 }
 
 /* 初始化 PCI 设备配置空间能力链表中的 MSI 能力 */
-int __device_MSI_INIT(device_t *dev, u8 vector){
+int __device_MSI_init(pci_device_t *dev, u8 vector){
     u32 cmd = read_register(dev->bus, dev->dev_num,\
                             dev->function, PCI_CONFIG_SPACE_CMD);
     
@@ -239,7 +239,7 @@ int __device_MSI_INIT(device_t *dev, u8 vector){
                 dev->function,
                 cap_p, reg);
     
-    printk(PCI_LOG_INFO "reg %x\n", reg);
+    //printk(PCI_LOG_INFO "reg %x\n", reg);
 
     u8 msg_data_p = cap_p;
     u8 msg_addr_p = cap_p + 0x4;
@@ -262,7 +262,7 @@ int __device_MSI_INIT(device_t *dev, u8 vector){
                             dev->function,
                             msg_data_p);
     
-    printk(PCI_LOG_INFO "msg_data %x\n", msg_data);
+    //printk(PCI_LOG_INFO "msg_data %x\n", msg_data);
 
     /* edge, fixed */
     msg_data = vector;

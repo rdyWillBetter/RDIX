@@ -25,7 +25,11 @@ typedef int int32;
 
 typedef int32 fd_t;
 
-typedef u32 pid_t;
+typedef int32 pid_t;
+
+typedef int32 dev_t;
+
+typedef int32 idx_t;
 
 typedef enum std_fd_t{
     stdin,

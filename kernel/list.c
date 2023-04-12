@@ -2,9 +2,7 @@
 #include <rdix/kernel.h>
 #include <common/assert.h>
 
-List_t *new_list(){
-    List_t *list = (List_t *)malloc(sizeof(List_t));
-
+void list_init(List_t *list){
     list->number_of_node = 0;
 
     list->end.previous = &list->end;
@@ -12,6 +10,12 @@ List_t *new_list(){
     list->end.value = INFINTY;
     list->end.owner = NULL;
     list->end.container = list;
+}
+
+List_t *new_list(){
+    List_t *list = (List_t *)malloc(sizeof(List_t));
+
+    list_init(list);
 
     return list;
 }

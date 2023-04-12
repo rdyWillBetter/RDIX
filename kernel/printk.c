@@ -3,8 +3,9 @@
 #include <common/console.h>
 #include <common/interrupt.h>
 #include <common/stdio.h>
+#include <rdix/device.h>
 
-char buf[1024];
+static char buf[1024];
 
 void printk(const char *fmt, ...){
     va_list arg;
@@ -18,5 +19,6 @@ void printk(const char *fmt, ...){
     set_IF(IF_state);
 
     /* 屏显函数中已经设置关中断，无需重复设置 */
-    console_put_string(buf);
+    device_t *dev = device_find(DEV_CONSOLE, 0);
+    device_write(dev->dev, buf, 0, 0, 0);
 }

@@ -22,7 +22,7 @@ void mutex_lock(mutex_t *mutex){
     if (mutex->value && !mutex->waiter->number_of_node)
         mutex->value = 0;
     else
-        block(mutex->waiter, NULL);
+        block(mutex->waiter, NULL, TASK_BLOCKED);
 
     set_IF(IF_state);
 }

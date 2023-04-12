@@ -64,3 +64,23 @@ int32 brk(void *vaddr){
 pid_t fork(){
     return _syscall0(SYS_NR_FORK);
 }
+
+pid_t getpid(){
+    return _syscall0(SYS_NR_GETPID);
+}
+
+pid_t getppid(){
+    return _syscall0(SYS_NR_GETPPID);
+}
+
+pid_t exit(int status){
+    return _syscall1(SYS_NR_EXIT, status);
+}
+
+pid_t waitpid(pid_t pid, int32 *status){
+    return _syscall2(SYS_NR_WAITPID, pid, status);
+}
+
+void yield(){
+    return _syscall0(SYS_NR_YIELD);
+}

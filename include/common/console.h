@@ -63,13 +63,10 @@ typedef enum Arrow_t{
 } Arrow_t;
 
 void console_init();
-void console_clean();
 u16 get_cursor_position();
 void set_cursor_position(u16 cursor_position, bool clean);
 u16 get_screen_position();
 void set_screen_position(u16 screen_position);
-void console_put_char(char ch);
-void console_put_string(const char* str);
 void keyboard_arrow(Arrow_t arrow);
 
 #endif

@@ -8,6 +8,7 @@
 #include <rdix/task.h>
 #include <common/assert.h>
 #include <common/console.h>
+#include <rdix/device.h>
 
 #define KEYBOARD_DATA_POAT 0x60
 #define KETBOARD_CTRL_POAT 0x64
@@ -302,12 +303,13 @@ End:
     lapic_send_eoi();
 }
 
-size_t keyboard_read(char *buf, size_t count){
+/* buf 为接收缓存，count 为从键盘缓存中读取数据的个数 */
+static size_t keyboard_read(void *dev, char *buf, size_t count){
     mutex_lock(lock);
     
     for (int i = 0; i < count; ++i){
         if (que_isempty(key_buf))
-            block(waiter, NULL);
+            block(waiter, NULL, TASK_BLOCKED);
 
         /* 在 que_pop 的过程中操作了 key_buf
         * 而在键盘中断函数中也可能操作该全局变量
@@ -333,5 +335,7 @@ void keyboard_init(){
     waiter = new_list();
     lock = new_mutex();
     
+    device_install(DEV_CHAR, DEV_KEYBOARD, NULL, "keyboard", 0,
+                NULL, keyboard_read, NULL);
     install_int(IRQ1_KEYBOARD, 0, 0, keyboard_hander);
 }

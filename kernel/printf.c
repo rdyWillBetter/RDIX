@@ -3,7 +3,7 @@
 #include <common/stdio.h>
 #include <rdix/syscall.h>
 
-char buf[1024];
+static char buf[1024];
 u32 printf(const char* fmt, ...){
     va_list arg;
     va_start(arg, fmt);

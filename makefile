@@ -26,7 +26,7 @@ CFLAGS=-m32 \
 INCLUDES=-I ./include
 
 LD=ld
-LFLAGS=-m elf_i386 -static -Ttext $(KERNELSTARTPOINT) --section-start=multiboot2=$(MULTIBOOT2) -e start
+LFLAGS=-m elf_i386 -static -Ttext $(KERNELSTARTPOINT) --section-start=multiboot2=$(MULTIBOOT2)
 
 FILE:=$(wildcard $(SRC)/kernel/*.c)
 FILE:=$(notdir $(FILE))
@@ -43,7 +43,7 @@ $(BUILD)/%.bin: $(SRC)/boot/%.asm
 	nasm -f bin $^ -o $@
 
 $(BUILD)/%.o: $(SRC)/kernel/%.asm
-	nasm -f  elf32 $^ -o $@ -g
+	nasm -f elf32 -g $^ -o $@ 
 
 $(BUILD)/%.o: $(SRC)/kernel/%.c
 	$(CC) $(CFLAGS) $(INCLUDES) -c $^ -o $@

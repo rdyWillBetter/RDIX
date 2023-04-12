@@ -40,6 +40,22 @@ char *strcpy(char *dest, const char *src){
     return ptr;
 }
 
+/* 把字符 src 串复制长度 count 到 dest 中
+ * count 必须要大于 1， 因为要空出一个位置放 '\0' */ 
+char *strncpy(char *dest, const char *src, size_t count){
+    char *ptr = dest;
+
+    while (*src != '\0' && --count){
+        *ptr = *src;
+        ++ptr;
+        ++src;
+    }
+    *ptr = '\0';
+
+    return ptr;
+}
+
+
 int length(const char *str){
     int len = 0;
     while (*str++ != '\0'){

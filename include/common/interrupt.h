@@ -30,6 +30,8 @@
 #define IRQ14_DISK 0xe
 #define IRQ15_RESERVED 0xf
 
+#define IRQ16_HBA 0x10
+
 typedef struct gate_t{
     u16 offset_l; //代码段，段内偏移低16位
     u16 selector; //代码段，段选择子

@@ -178,6 +178,7 @@ static void idt_init(){
     asm volatile("lidt p");
 }
 
+/* dest 为目标 cpu 的编号 */
 void install_int(u8 old_irq, u8 dest, u32 flag, handler_t handler){
     u8 new_irq = irq_override(old_irq);
     u8 vector = new_irq + START_INT_NUM;

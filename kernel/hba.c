@@ -5,6 +5,10 @@
 #include <common/assert.h>
 #include <common/string.h>
 #include <common/stdlib.h>
+#include <rdix/task.h>
+#include <common/interrupt.h>
+#include <rdix/syscall.h>
+#include <rdix/device.h>
 
 #define HBA_LOG_INFO __LOG("[hba]")
 #define HBA_WARNING_INFO __WARNING("[hba warning]")
@@ -39,7 +43,7 @@ bool probe_hba(){
     }
 
     /* 初始化 MSI 中断 */
-    assert(__device_MSI_INIT(hba->dev_info, 0x33) == 0);
+    assert(__device_MSI_init(hba->dev_info, IRQ16_HBA + INTEL_INT_RESERVED) == 0);
 
     u32 cmd = read_register(hba->dev_info->bus, hba->dev_info->dev_num,\
                     hba->dev_info->function, PCI_CONFIG_SPACE_CMD);
@@ -81,6 +85,8 @@ void hba_GHC_init(){
     assert(hba->io_base[REG_IDX(HBA_REG_GHC)] & HBA_GHC_AE);
     /* 启用 HBA 全局中断 */
     hba->io_base[REG_IDX(HBA_REG_GHC)] |= HBA_GHC_IE;
+    /* 清空中断暂挂 */
+    hba->io_base[REG_IDX(HBA_REG_IS)] = -1;
     /* 每个端口命令列表中最多插槽 (slot) 数 */
     hba->per_port_slot_cnt = ((hba->io_base[REG_IDX(HBA_REG_CAP)] >> 8) & 0x1f) + 1;
 }
@@ -131,6 +137,11 @@ hba_port_t *new_port(int32 port_num){
 
     /* 启动 hba 开始处理该端口对应命令链表 */
     port->reg_base[REG_IDX(HBA_PORT_PxCMD)] |= HBA_PORT_CMD_ST;
+
+    port->waiting_list = new_list();
+    port->sending = NULL;
+    port->last_status = -1;
+    port->timer = NULL;
     
     return port;
 }
@@ -195,7 +206,7 @@ hba_dev_t* new_hba_device(hba_port_t *port, u8 spd){
 
     /* 不知为何在 VM 中将内存调到 256M 就会造成读取错误。
      * 因为错误使用 sizeof */
-    dev->last_status = sata_send_cmd(dev, ATA_CMD_IDENTIFY_DEVICE, 0, 0);
+    sata_send_cmd(dev, ATA_CMD_IDENTIFY_DEVICE, 0, 0);
 
     prase_deviceinfo(dev, dev->data);
 
@@ -353,38 +364,169 @@ slot_num load_ata_cmd(hba_dev_t *dev, u8 cmd, u64 startlba, u16 count){
     return free_slot;
 }
 
-send_status_t try_send_cmd(hba_port_t *port, slot_num slot){
-    if (port->reg_base[REG_IDX(HBA_PORT_PxSIG)] != SATA_DEV_SIG)
-        return NOT_SATA;
+void sata_busy_wait(hba_port_t *port){
+    if (port->reg_base[REG_IDX(HBA_PORT_PxTFD)] & HBA_PORT_TFD_BSY){
+        /* 如果这里没通过，代表上一次发送出现问题后没有复位 */
+        assert(port->sending != NULL);
+        block(port->waiting_list, NULL, TASK_WAITING);
+    }
+}
 
-    time_t limit = 0x100000;
-    for (; port->reg_base[REG_IDX(HBA_PORT_PxTFD)] & HBA_PORT_TFD_BSY; --limit);
-    if (!limit)
-        return _BUSY;
+void __timer(){
+    set_IF(true);
+    hba_port_t *port = NULL;
 
+    /* 参数指针保存在 edi 中 */
+    asm volatile(
+        "movl %%edi,%0\n"
+        :"=m"(port)
+    );
+
+    /* 超时计时器时长 */
+    sleep(2000);
+
+    port->last_status = GENERAL_ERROR;
+
+    bool st = get_IF();
+    set_IF(false);
+    /* 中断迟迟不来，计时结束后需要通过 timer 来解除传输进程阻塞 */
+    unblock(port->sending);
+
+    /* 传输失败后要进行复位处理 */
+    port->sending = NULL;
+
+    /* kernel_thread_kill 不会去解除 waitpid 的阻塞，所里这里要关中断
+     * 防止父进程先一步 waitpid */
+    kernel_thread_kill(NULL);
+
+    set_IF(st);
+}
+
+void sata_sending_wait(hba_port_t *port, slot_num slot){
+    assert(port->sending == NULL);
+
+    bool IF_stat = get_IF();
+    set_IF(false);
+    
     /* 清空中断状态寄存器 */
     port->reg_base[REG_IDX(HBA_PORT_PxIS)] = -1;
 
+    /* 发送 */
     port->reg_base[REG_IDX(HBA_PORT_PxCI)] |= 1 << slot;
 
-    limit = 0x100000;
-    for(; (port->reg_base[REG_IDX(HBA_PORT_PxCI)] & (1 << slot)) && limit; --limit);
+    port->sending = current_task();
+
+    /* 开启超时计时器 */
+    port->timer = task_create(__timer, port, "timer", 3, KERNEL_UID);
+
+    block(NULL, NULL, TASK_BLOCKED);
+
+    int32 *tmp;
+    assert(sys_waitpid(((TCB_t*)port->timer->owner)->pid, &tmp) != -1);
+
+    set_IF(IF_stat);
+}
+
+send_status_t try_send_cmd(hba_port_t *port, slot_num slot){
     
-    if (!limit){
-        port->reg_base[REG_IDX(HBA_PORT_PxCI)] &= ~(1 << slot);
-        return GENERAL_ERROR;
+    if (port->reg_base[REG_IDX(HBA_PORT_PxSIG)] != SATA_DEV_SIG){
+        port->last_status = NOT_SATA;
+        return NOT_SATA;
+    }
+        
+    if (current_task()){
+        sata_busy_wait(port);
+
+        port->last_status = GENERAL_ERROR;
+
+        sata_sending_wait(port, slot);
+
+        return port->last_status;
+    }
+    else {
+        time_t limit = 0x100000;
+        for (; port->reg_base[REG_IDX(HBA_PORT_PxTFD)] & HBA_PORT_TFD_BSY; --limit);
+
+        if (!limit){
+            port->last_status = _BUSY;
+            return _BUSY;
+        }
+        
+        /* 清空中断状态寄存器 */
+        port->reg_base[REG_IDX(HBA_PORT_PxIS)] = -1;
+
+        port->reg_base[REG_IDX(HBA_PORT_PxCI)] |= 1 << slot;
+
+        limit = 0x100000;
+        for(; (port->reg_base[REG_IDX(HBA_PORT_PxCI)] & (1 << slot)) && limit; --limit);
+
+        if (!limit){
+            port->reg_base[REG_IDX(HBA_PORT_PxCI)] &= ~(1 << slot);
+            port->last_status = GENERAL_ERROR;
+            return GENERAL_ERROR;
+        }
     }
 
+    port->last_status = SUCCESSFUL;
     return SUCCESSFUL;
+}
+
+static void hba_hander(u32 int_num){
+    printk(HBA_LOG_INFO "in interrupt [0x%x]\n", int_num);
+    
+    List_t *devices = hba->devices;
+    hba_port_t *port = NULL;
+
+    for (ListNode_t *node = devices->end.next;
+        node != &devices->end; node = node->next){
+
+        hba_dev_t *dev = (hba_dev_t *)node->owner;
+        
+        /* 检测是哪个 port 发出的中断 */
+        if (dev->port->reg_base[REG_IDX(HBA_PORT_PxIS)] & HBA_PORT_IS_DPS){
+            port = dev->port;
+            break;
+        }
+    }
+
+    if (!port)
+        PANIC("can not find a port which trigger the interrupt\n");
+    
+    assert(port->sending != NULL);
+
+    /* 用于测试中断未到的情况 */
+    //goto hba_hander_END;
+
+    port->last_status = SUCCESSFUL;
+
+    unblock(port->sending);
+    port->sending = NULL;
+
+    if (!list_isempty(port->waiting_list))
+        unblock(port->waiting_list->end.next);
+
+    if (port->timer)
+        kernel_thread_kill(port->timer);
+
+hba_hander_END:
+    /* 清空端口中断状态寄存器，如果不清空，推出中断后 hba 会立马发出一个一模一样的中断，
+     * 会造成二次中断的情况 */
+    port->reg_base[REG_IDX(HBA_PORT_PxIS)] = -1;
+    /* 清空 hba 中断暂挂，不清空的话 hba 不会再发送已暂挂端口的中断 */
+    hba->io_base[REG_IDX(HBA_REG_IS)] = -1;
+
+    lapic_send_eoi();
 }
 
 /* RorW == true 时为读操作
  * RorW == false 时为写操作 */
 int __sata_io(hba_dev_t *dev, void *buffer, u64 startlba, size_t size, bool RorW){
+    //printk("dev->max_lba = %x\n", dev->max_lba);
     assert(startlba < dev->max_lba);
 
     u8 cmd;
 
+    /* 28lba 和 48lba 使用的是不同的指令 */
     if (dev->flags & SATA_LBA_48_ENABLE){
         cmd = RorW ? ATA_CMD_READ_DMA_EXT : ATA_CMD_WRITE_DMA_EXT;
     }
@@ -394,21 +536,27 @@ int __sata_io(hba_dev_t *dev, void *buffer, u64 startlba, size_t size, bool RorW
 
     dev->data = buffer;
 
-    dev->last_status = sata_send_cmd(dev, cmd, startlba, size);
+    sata_send_cmd(dev, cmd, startlba, size);
 
-    if (dev->last_status == SUCCESSFUL)
+    if (dev->port->last_status == SUCCESSFUL)
         return 0;
     
     return 1;
 }
 
-/* size 单位扇区 */
-int __sata_read_secs(hba_dev_t *dev, void *buffer, u64 startlba, size_t size){
-    return __sata_io(dev, buffer, startlba, size, true);
+/* size 单位为扇区 */
+static int __sata_read_secs(hba_dev_t *dev, void *buffer, size_t count, u64 startlba){
+    return __sata_io(dev, buffer, startlba, count, true);
 }
 
-int __sata_write_secs(hba_dev_t *dev, void *buffer, u64 startlba, size_t size){
-    return __sata_io(dev, buffer, startlba, size, false);
+static int __sata_write_secs(hba_dev_t *dev, void *buffer, size_t count, u64 startlba){
+    return __sata_io(dev, buffer, startlba, count, false);
+}
+
+static int __sata_ioctl(hba_dev_t *dev, int cmd, void *args, int flags){
+    printk("sata ioctl hasn't been implemented\n");
+
+    return 0;
 }
 
 static char *error_str[4] = {
@@ -423,57 +571,70 @@ char *test_str = "the user data shall be written to \n"\
             " regardless of whether or not volatile and/or \n"\
             "non-volatile write caching in the device is enabled.\n";
 
-void hba_init(){
-    int dev_num = 0;
+static void hba_ctrl_init(){
     /* 没有 hba 设备 */
     if (!probe_hba())
         return;
 
     hba_GHC_init();
     hba_devices_init();
-    
+}
+
+static void sata_install(){
+    int dev_num = 0;
     List_t *devices = hba->devices;
-    
+
     for (ListNode_t *node = devices->end.next; node != &devices->end; node = node->next, ++dev_num){
         hba_dev_t *dev = (hba_dev_t *)node->owner;
 
-        if (dev->last_status == SUCCESSFUL){
+        if (dev->port->last_status == SUCCESSFUL){
             printk(HBA_LOG_INFO "(device %d) sata serial_%s\n", dev_num, dev->sata_serial);
             printk(HBA_LOG_INFO "(device %d) sata model_%s\n", dev_num, dev->model);
             printk(HBA_LOG_INFO "(device %d) sata maxLBA_%x\n", dev_num, dev->max_lba);
             printk(HBA_LOG_INFO "(device %d) sata blocksize_%d\n", dev_num, dev->block_size);
             printk(HBA_LOG_INFO "(device %d) sata blockPerSec_%d\n", dev_num, dev->block_per_sec);
             if (dev->flags & SATA_LBA_48_ENABLE)
-                printk (HBA_LOG_INFO "support 48 LBA\n");
+                printk (HBA_LOG_INFO "(device %d) support 48 LBA\n", dev_num);
             else
-                printk(HBA_LOG_INFO "do not support 48 LBA\n");
+                printk(HBA_LOG_INFO "(device %d) do not support 48 LBA\n", dev_num);
+
+            device_install(DEV_BLOCK, DEV_SATA_DISK, dev, dev->sata_serial, 0,
+                        __sata_ioctl, __sata_read_secs, __sata_write_secs);
         }
         else
-            printk(HBA_LOG_INFO "(device %d) error code %s\n", dev_num, error_str[dev->last_status]);
+            printk(HBA_LOG_INFO "(device %d) error code %s\n", dev_num, error_str[dev->port->last_status]);
     }
+}
+
+void hba_init(){
+    hba_ctrl_init();
+    sata_install();
+
+    /* 安装中断前需要在 MSI 中设置中断向量值 */
+    install_int(IRQ16_HBA, 0, 0, hba_hander);
 }
 
 void disk_test(){
     // 尝试读取扇区
     void *buf = malloc(1 << 9);
 
-    hba_dev_t *dev_test = (hba_dev_t *)hba->devices->end.next->owner;
+    device_t *dev = device_find(DEV_SATA_DISK, 0);
 
-    if (__sata_write_secs(dev_test, test_str, 0x7000, 1) == 0){
+    /* if (device_write(dev->dev, test_str, 1, 0x7000, 0) == 0){
         printk(HBA_LOG_INFO "disk write success\n"); 
     }
     else{
-        printk("write error status: %s\n", error_str[dev_test->last_status]);
-    }
+        printk("write error status: %s\n", error_str[((hba_dev_t *)dev->ptr)->port->last_status]);
+    } */
 
-    printk(HBA_LOG_INFO "before read disk\n");
-    mdebug(buf, 64);
+    /* printk(HBA_LOG_INFO "before read disk\n");
+    mdebug(buf, 64); */
 
-    if (__sata_read_secs(dev_test, buf, 0x7000, 1) == 0){
+    if (device_read(dev->dev, buf, 1, 0x7000, 0) == 0){
             printk(HBA_LOG_INFO "disk read success\n");
             mdebug(buf, 64);
     }
     else{
-        printk("read error status: %s\n", error_str[dev_test->last_status]);
+        printk("read error status: %s\n", error_str[((hba_dev_t *)dev->ptr)->port->last_status]);
     }
 }

@@ -53,7 +53,7 @@ typedef struct device_t{
     u32 Ccode;
     u8 header_type;
     bar_entry BAR[6];
-} device_t;
+} pci_device_t;
 
 void PCI_init();
 void PCI_info();
@@ -61,12 +61,12 @@ void PCI_info();
 u32 read_register(u8 bus, u8 dev_num, u8 function, u8 reg);
 void write_register(u8 bus, u8 dev_num, u8 function, u8 reg, u32 data);
 
-device_t *get_device_info(u32 dev_cc);
+pci_device_t *get_device_info(u32 dev_cc);
 
 typedef u8 cap_p_t;
 
-cap_p_t capability_search(device_t *dev, u8 cap_id);
+cap_p_t capability_search(pci_device_t *dev, u8 cap_id);
 
-int __device_MSI_INIT(device_t *dev, u8 vector);
+int __device_MSI_init(pci_device_t *dev, u8 vector);
 
 #endif

@@ -15,14 +15,19 @@ static void pit_init(){
 /* jiffies 表示当前已经执行了多少个时间片 */
 time_t jiffies;
 static void clock_handler(u32 int_num, u32 code){
+    /* 不发送 eoi 的话下次外中断会被屏蔽 */
+    //sent_eoi(int_num);
+    lapic_send_eoi();
+
+    if (current_task() == NULL){
+        schedule();
+        return;
+    }
+        
     TCB_t *current = (TCB_t *)(current_task()->owner);
 
     /* out of memory */
     assert(current->magic == RDIX_MAGIC);
-
-    /* 不发送 eoi 的话下次外中断会被屏蔽 */
-    //sent_eoi(int_num);
-    lapic_send_eoi();
 
     current->jiffies = ++jiffies;
 

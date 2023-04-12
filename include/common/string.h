@@ -10,6 +10,7 @@ char *strcat(char *dest,const char *src);
 
 /* 把字符 src 串复制到 dest 中 */
 char *strcpy(char *dest, const char *src);
+char *strncpy(char *dest, const char *src, size_t count);
 bool strcmp(const char *str0, const char*str1, size_t count);
 
 void *memcpy(void *dest, const void *src, size_t n);

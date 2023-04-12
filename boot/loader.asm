@@ -228,7 +228,7 @@ gdtr:
 DiskAddressPacket:
 	PacketSize db 0x10
 	Reserved db 0
-	BlockCount dw 0x70  ;单次读取上限为 0x7f(127) 个扇区
+	BlockCount dw 0x7f  ;单次读取上限为 0x7f(127) 个扇区
 	BufferOffset dw 0
 	BufferSeg dw 0x2000
 	BlockNum dq 20

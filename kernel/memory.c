@@ -438,6 +438,7 @@ phy_addr_t copy_phy_page(vir_addr_t page){
     return paddr;
 }
 
+/* pde 实在内核内存中申请的，所以获得的 pde 虚拟地址等于其物理地址 */
 page_entry_t *copy_pde(){
     TCB_t *task = (TCB_t *)current_task()->owner;
     page_entry_t *pde = (page_entry_t *)alloc_kpage(1);
@@ -446,7 +447,7 @@ page_entry_t *copy_pde(){
     page_entry_t *entry = &pde[1023];
     entry_init(entry, PAGE_IDX((u32)pde));
     
-    for (size_t didx = 4; didx < 1024 - 1; ++didx){
+    for (size_t didx = KERNEL_MEMERY_SIZE / 0x400000; didx < 1024 - 1; ++didx){
         page_entry_t *dentry = &pde[didx];
         if (!dentry->present)
             continue;
@@ -478,6 +479,43 @@ page_entry_t *copy_pde(){
     set_cr3(task->pde);
 
     return pde;
+}
+
+void free_pde(){
+    TCB_t *task = (TCB_t *)current_task()->owner;
+    assert(task->uid != KERNEL_UID);
+
+    page_entry_t *pde = PDE_L_ADDR;
+
+    for (size_t didx = KERNEL_MEMERY_SIZE / 0x400000; didx < 1023; didx++)
+    {
+        page_entry_t *dentry = &pde[didx];
+        if (!dentry->present)
+        {
+            continue;
+        }
+
+        page_entry_t *pte = (page_entry_t *)(0xffc00000 | (didx << 12));
+
+        for (size_t tidx = 0; tidx < 1024; tidx++)
+        {
+            page_entry_t *entry = &pte[tidx];
+            if (!entry->present)
+            {
+                continue;
+            }
+
+            assert(p_bit_map[entry->index] > 0);
+            free_p_page(entry->index);
+        }
+
+        // 释放页表
+        free_p_page(dentry->index);
+    }
+
+    printk(MEMORY_LOG_INFO "free pde 0x%p\n", task->pde);
+    // 释放页目录
+    free_kpage(task->pde, 1);
 }
 
 int32 sys_brk(vir_addr_t vaddr){

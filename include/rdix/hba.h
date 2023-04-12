@@ -12,6 +12,7 @@
 
 /* 寄存器的地址单位是字节，要转换为单位为 u32 才能在 io_base 中正常访问 */
 #define REG_IDX(addr) (addr >> 2)
+
 #define HBA_REG_CAP 0x0
 #define HBA_REG_GHC 0x4
 #define HBA_REG_IS 0x8
@@ -49,6 +50,7 @@
 #define HBA_PORT_CMD_CR (1 << 15)
 #define HBA_PORT_TFD_BSY (1 << 7)
 #define HBA_PORT_IE_DPE (1 << 5)
+#define HBA_PORT_IS_DPS (1 << 5)
 
 /* fis 类型 */
 #define FIS_RH2D 0x27
@@ -77,7 +79,7 @@ typedef struct hba_dev_t{
 
     u8 spd;
     void *data;
-    send_status_t last_status;
+    
 
     struct hba_port_t *port;
 } hba_dev_t;
@@ -121,12 +123,22 @@ typedef struct hba_port_t{
     cmd_list_slot *vPxCLB;
     u32 *vPxFB;
 
+    /* mmio 寄存器基地址 */
     u32 *reg_base;
+
+    /* 发送状态 */
+    send_status_t last_status;
+
+    List_t *waiting_list;
+    ListNode_t *sending;
+
+    /* 超时定时线程 */
+    ListNode_t *timer;
 } hba_port_t;
 
 /* hba 设备 */
 typedef struct hba_t{
-    device_t* dev_info;
+    pci_device_t* dev_info;
     u32 *io_base;
     List_t *devices;
     u8 per_port_slot_cnt;
@@ -134,7 +146,7 @@ typedef struct hba_t{
 
 /* 会被外部改变的值需要加上 volatile
  * 比如这个结构体里的值会被 device 改变，编译器可能不知道
- * 他可能会把值存在寄存器里，当腰读取的时候去寄存器里读，而不是这个内存空间
+ * 他可能会把值存在寄存器里，当要读取的时候去寄存器里读，而不是这个内存空间
  * 由此可能造成错误 */
 typedef volatile struct tagHBA_FIS
 {

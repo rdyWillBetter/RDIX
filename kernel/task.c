@@ -8,6 +8,8 @@
 #include <common/global.h>
 #include <common/interrupt.h>
 
+#define TASK_LOG_INFO __LOG("[task]")
+
 #define TASK_NUM 64
 
 extern bitmap_t v_bit_map;
@@ -15,10 +17,12 @@ extern time_t jiffies;
 extern tss_t tss;
 
 static u32 task_cnt;
+static ListNode_t *task_bucket[TASK_NUM];
 
 List_t *block_list;
 List_t *sleep_list;
 List_t *ready_list;
+List_t *died_list;
 
 static ListNode_t *running_task;
 
@@ -31,6 +35,9 @@ extern void interrupt_exit();
  * 局部变量的声明会导致函数在返回时改变 esp 的值（默认调用规范中是由被调用者恢复栈） */
 _ofp void task_switch(TCB_t *current_task_src, TCB_t *next_task_src){
     asm volatile(
+        "cmp $0, %1\n"
+        "je no_cur_task\n"
+        
         "pushl %%ebp\n"
         "pushl %%ebx\n"
         "pushl %%esi\n"
@@ -38,43 +45,46 @@ _ofp void task_switch(TCB_t *current_task_src, TCB_t *next_task_src){
 
         "movl %%esp, (%1)\n"
 
+        "no_cur_task:\n"
         "movl (%0), %%esp\n"
 
         "popl %%edi\n"
         "popl %%esi\n"
         "popl %%ebx\n"
         "popl %%ebp\n"
-        "sti\n" //调度结束后一定要记得开外中断
+        //"sti\n" //调度结束后一定要记得开外中断
         :
         :"c"(next_task_src),"d"(current_task_src)
         :
     );
 }
 
-/* 做其他工作之前，要创建内核自己的 TCB */
-static void kernel_task_init(){
-    TCB_t *kernel = (TCB_t *)KERNEL_TCB;
-    void *stack = NULL;
+ListNode_t *get_task(){
+    pid_t pid = 0;
+    for (; pid < TASK_NUM; ++pid){
+        if(!task_bucket[pid])
+            break;
+    }
 
-    block_list = new_list();
-    sleep_list = new_list();
-    ready_list = new_list();
+    if (pid >= TASK_NUM){
+        PANIC("no more task\n");
+    }
 
-    kernel->state = TASK_RUNNING;
-    kernel->priority = 3;
-    kernel->ticks = kernel->priority;
-    kernel->jiffies = 0;
-    strcpy((char *)kernel->name, "kernel");
-    kernel->uid = 0;
-    kernel->pde = 0x1000; //内核页目录，修改过memory.c后要注意这里可能出问题
-    kernel->vmap = &v_bit_map; //内核虚拟内存位图，同上
-    kernel->brk = KERNEL_MEMERY_SIZE;
-    kernel->magic = RDIX_MAGIC;
+    TCB_t *task = (TCB_t *)alloc_kpage(1);
+    ListNode_t *task_node = new_listnode(task, 0);
 
-    /* 开始执行 */
-    running_task = new_listnode(kernel, kernel->priority);
+    /* 防竞态 */
+    bool state = get_IF();
+    set_IF(false);
 
-    ++task_cnt;
+    task_bucket[pid] = task_node;
+
+    task->pid = pid;
+    task->ppid = running_task == NULL ? 0 : ((TCB_t*)running_task->owner)->pid;
+
+    set_IF(state);
+
+    return task_node;
 }
 
 ListNode_t *current_task(){
@@ -85,16 +95,49 @@ char *task_name(){
     return ((TCB_t *)running_task->owner)->name;
 }
 
-ListNode_t *task_create(task_program handle, void *param, const char *name, u32 priority, u32 uid){
-    TCB_t *tcb = (TCB_t *)alloc_kpage(1);
-    task_stack_t *stack = (task_stack_t *)((u32)tcb + PAGE_SIZE - sizeof(task_stack_t));
-    ListNode_t *node = new_listnode(tcb, priority);
+void kernel_thread_kill(ListNode_t *th){
+    th = th ? th : current_task();
 
-    if (task_cnt >= TASK_NUM){
-        PANIC("Can not create more task!\n");
+    TCB_t *task = (TCB_t *)th->owner;
+
+    /* 防竞态 */
+    bool IF_stat = get_IF();
+    set_IF(false);
+    /* 将该进程的子进程指向它的爷爷 */
+    for (size_t i = 0; i < TASK_NUM; ++i){
+        if (!task_bucket[i])
+            continue;
+
+        TCB_t *child = (TCB_t *)task_bucket[i]->owner;
+        if (child->ppid == task->pid)
+            child->ppid = task->ppid;
     }
 
-    ++task_cnt;
+    if (th != running_task)
+        remove_node(th);
+        
+    list_push(died_list, th);
+
+    task->state = TASK_DIED;
+
+    /* 唤醒父进程 */
+    /* TCB_t *parent = (TCB_t *)task_bucket[task->ppid]->owner;
+    if (parent->state == TASK_WAITING && 
+        (parent->waitpid == -1 || parent->waitpid == task->pid)){
+        unblock(task_bucket[task->ppid]);
+    } */
+    if (th == running_task)
+        schedule();
+
+    set_IF(IF_stat);
+}
+
+ListNode_t *task_create(task_program handle, void *param, const char *name, u32 priority, u32 uid){
+    ListNode_t *node = get_task();
+    TCB_t *tcb = (TCB_t *)node->owner;
+    task_stack_t *stack = (task_stack_t *)((u32)tcb + PAGE_SIZE - sizeof(task_stack_t));
+
+    node->value = priority;
     
     /* edi 为指向传入参数结构体的指针 */
     stack->edi = (u32)param;
@@ -103,8 +146,6 @@ ListNode_t *task_create(task_program handle, void *param, const char *name, u32 
     stack->ebp = 0x4;
     stack->eip = handle;
 
-    tcb->pid = task_cnt;
-    tcb->ppid = 0;
     tcb->stack = stack;
     tcb->state = TASK_READY;
     tcb->priority = priority;
@@ -116,8 +157,15 @@ ListNode_t *task_create(task_program handle, void *param, const char *name, u32 
     tcb->vmap = &v_bit_map; //内核虚拟内存位图，同上
     tcb->brk = KERNEL_MEMERY_SIZE;
     tcb->magic = RDIX_MAGIC;
+    tcb->waitpid = 0;
+
+    /* 防竞态 */
+    bool IF_stat = get_IF();
+    set_IF(false);
 
     list_push(ready_list, node);
+
+    set_IF(IF_stat);
 
     return node;
 }
@@ -125,18 +173,26 @@ ListNode_t *task_create(task_program handle, void *param, const char *name, u32 
 /* 目前没有好的调度算法
  * 就是排队而已 */
 void schedule(){
+    assert(get_IF() == false);
     ListNode_t *next = list_popback(ready_list);
-    ListNode_t *current = running_task;
+    TCB_t *current_tcb = NULL;
 
     /* bug 调试记录
      * 必须要验证 next 不为 NULL 后，在能进行下一步操作 */
-    if (next == NULL)
+    if (next == NULL){
+        assert(running_task != NULL);
+        /* 如果当前 task 的状态不为 TASK_RUNNING, 代表已经没有进程可以运行了 */
+        assert(((TCB_t *)running_task->owner)->state == TASK_RUNNING);
         return;
+    }
 
     TCB_t *next_tcb = (TCB_t *)next->owner;
-    TCB_t *current_tcb = (TCB_t *)current->owner;
 
-    running_task = next;
+    if (running_task == NULL){
+        goto __SWITCH;
+    }
+    
+    current_tcb = (TCB_t *)running_task->owner;
 
     assert(next_tcb->magic == RDIX_MAGIC);
 
@@ -144,9 +200,9 @@ void schedule(){
 
     /* 调用 block 或 sleep 后当前任务很可能已经被加入到对应的链表中
      * 因此这里就不能再把它加入到 ready链表 中 */
-    if (current->container == NULL){
+    if (running_task->container == NULL){
         current_tcb->state = TASK_READY;
-        list_push(ready_list, current);
+        list_push(ready_list, running_task);
     }
 
     if (next_tcb->pde != get_cr3()){
@@ -163,11 +219,15 @@ void schedule(){
         tss.esp0 = ((u32)next_tcb->stack & 0xfffff000) + PAGE_SIZE;
     }
 
-    task_switch(current->owner, next->owner);
+__SWITCH:
+    running_task = next;
+    task_switch(current_tcb, next_tcb);
 }
 
 /* 参数存放在 edi 中 */
 static void *kernel_to_user(){
+    /* 用户进程的创建不需要开中断，因为当通过 iret 进入用户态时，会从栈中恢复 flags
+     * 而该函数在配置 flags 时就已经将 IF 位置一，所以在进入用户态后会自动开中断 */
     intr_frame_t iframe;
     /* target 为用户程序入口地址 */
     user_target_t *target;
@@ -206,9 +266,12 @@ static void *kernel_to_user(){
     iframe.error = RDIX_MAGIC;
     iframe.eip = (u32)*target;
 
+    /* edi 所指向的空间是 malloc 出来的，需要释放 */
+    free(target);
+
     /* flage 中 IOPL 是控制所有 IO 权限的开关
      * 只有当 CPL <= IOPL 时，任务才允许访问所有 IO 端口，否则只能根据 tss 中的 io 位图来访问io */
-    iframe.eflags = (0 << 12 | 0b10 | 1 << 9);
+    iframe.eflags = (0 << 12 | 0b10 | 1 << 9);  // IF 位置位
     iframe.esp = USER_STACK_TOP;
 
     /* 修改内核栈指针 */
@@ -220,7 +283,7 @@ static void *kernel_to_user(){
     );
 }
 
-void *user_task_create(user_target_t target, const char *name, u32 priority){
+void user_task_create(user_target_t target, const char *name, u32 priority){
 
     /* target 是存放在栈中的，user_task_create 是会返回的
      * 一旦函数返回 target 内容就被释放了，因此需要额外创建一个容器存放 target */
@@ -233,11 +296,28 @@ void *user_task_create(user_target_t target, const char *name, u32 priority){
     task_create((task_program)kernel_to_user, (void *)container, name, priority, USER_UID);
 }
 
+void kernel_task_create(user_target_t target, const char *name, u32 priority){
+    task_create(target, NULL, name, priority, USER_UID);
+}
+
+pid_t sys_getpid(){
+    return ((TCB_t*)running_task->owner)->pid;
+}
+
+pid_t sys_getppid(){
+    return ((TCB_t*)running_task->owner)->ppid;
+}
+
 /* fork 是用户进程的系统调用，使用的是中断门
- * 进入后 cpu 会自动关中断，不需要关心竞态问题 */
+ * 进入后 cpu 会自动关中断，不需要关心竞态问题
+ * fork 的本质是将进程复制一份，子进程将会和父进程在同一位置继续执行 */
+/* 父进程中返回的是子进程的 pid，子进程返回 0 */
 pid_t sys_fork(){
+    assert(!get_IF());
+
     TCB_t *task = (TCB_t *)running_task->owner;
-    TCB_t *child = (TCB_t *)alloc_kpage(1);
+    ListNode_t *child_node = get_task();
+    TCB_t *child = (TCB_t *)child_node->owner;
     
     u32 ebp;
     asm volatile(
@@ -247,11 +327,14 @@ pid_t sys_fork(){
     /* 一共要向上走 ebp 和 eip 和 int0x80 传入的四个参数长度 */
     intr_frame_t *child_frame = (intr_frame_t *)(ebp + sizeof(u32) * 6 - (u32)task + (u32)child);
 
+    pid_t pid = child->pid;
+    pid_t ppid = child->ppid;
+
     /* 复制 TCB 以及内核栈 */
     memcpy((void *)child, (void *)task, PAGE_SIZE);
 
-    child->pid = ++task_cnt;
-    child->ppid = task->pid;
+    child->pid = pid;
+    child->ppid = ppid;
     child->ticks = child->priority;
     child->state = TASK_READY;
 
@@ -278,28 +361,122 @@ pid_t sys_fork(){
     child->stack = child_stack;
 
     /* 将 child 进程加入 ready 队列 */
-    list_push(ready_list, new_listnode(child, child->priority));
+    list_push(ready_list, child_node);
 
     return child->pid;
 }
 
-/* TCB 中状态值没有修改
+void sys_exit(int status){
+    assert(!get_IF());
+
+    TCB_t *task = (TCB_t *)running_task->owner;
+
+    /* 主动调用 exit 的肯定是当前任务，不属于任何状态链表，所以可以直接压入 */
+    list_push(died_list, running_task);
+
+    task->state = TASK_DIED;
+    task->status = status;
+
+    free_kpage((void *)task->vmap->start, 1);
+    free(task->vmap);
+
+    free_pde();//*************
+
+    /* 将该进程的子进程指向它的爷爷 */
+    for (size_t i = 0; i < TASK_NUM; ++i){
+        if (!task_bucket[i])
+            continue;
+
+        TCB_t *child = (TCB_t *)task_bucket[i]->owner;
+        if (child->ppid == task->pid)
+            child->ppid = task->ppid;
+    }
+
+    TCB_t *parent = (TCB_t *)task_bucket[task->ppid]->owner;
+    if (parent->state == TASK_WAITING && 
+        (parent->waitpid == -1 || parent->waitpid == task->pid)){
+        unblock(task_bucket[task->ppid]);
+    }
+
+    printk(TASK_LOG_INFO "task %p exit\n", task);
+
+    schedule();
+}
+
+/* 传入 pid == -1 代表随机释放一个子进程 */
+pid_t sys_waitpid(pid_t pid, int32 *status)
+{
+    assert(!get_IF());
+
+    TCB_t *task = (TCB_t *)current_task()->owner;
+    TCB_t *child = NULL;
+    ListNode_t *child_node = NULL;
+    bool has_child = false;
+
+    for (pid_t i = 0; i < TASK_NUM; ++i){
+        child_node = task_bucket[i];
+        
+        if (child_node == NULL)
+            continue;
+
+        child = (TCB_t *)child_node->owner;
+
+        if (child->ppid != task->pid)
+            continue;
+        if (pid != child->pid && pid != -1)
+            continue;
+
+        if (child->state == TASK_DIED)
+            goto rollback;
+
+        has_child = true;
+        break;
+    }
+
+    if (has_child){
+        task->waitpid = pid;
+        block(block_list, NULL, TASK_WAITING);
+        goto rollback;
+    }
+
+    /* 释放失败 */
+    return -1;
+
+rollback:
+    task_bucket[child->pid] = NULL;
+
+    *status = child->status;
+    u32 ret = child->pid;
+
+    /* 释放 TCB */
+    free_kpage(child, 1);
+
+    /* 释放节点 */
+    remove_node(child_node);
+    free(child_node);
+
+    return ret;
+}
+
+/* 已做防竞态处理
+ * TCB 中状态值没有修改
  * 若 task == NULL，代表阻塞当前任务
  * block 是将任务压入列表顶部 */
-void block(List_t *list, ListNode_t *task){
+void block(List_t *list, ListNode_t *task, task_state_t task_state){
     bool IF_stat = get_IF();
     set_IF(false);
 
-    if (!task){
-        list_push(list, running_task);
-        schedule();
-    }
-    else{
-        assert(task->container);
-        remove_node(task);
-        list_push(list, task);
-    }
+    task = task ? task : running_task;
+    list = list ? list : block_list;
 
+    ((TCB_t *)task->owner)->state = task_state;
+
+    if (task->container)
+        remove_node(task);
+
+    list_push(list, task);
+
+    schedule();
     set_IF(IF_stat);
 }
 
@@ -352,6 +529,27 @@ void weakup(){
     }
 }
 
+void sys_yield(){
+    schedule();
+}
+
+void __idle();
+void __init();
+void __keyboard();
+void __disk_test();
+
 void task_init(){
-    kernel_task_init();
+    memset(task_bucket, 0, sizeof(task_bucket));
+
+    block_list = new_list();
+    sleep_list = new_list();
+    ready_list = new_list();
+    died_list = new_list();
+
+    running_task = NULL;
+
+    kernel_task_create(__idle, "idle", 1);
+    user_task_create(__init, "init", 5);
+    kernel_task_create(__keyboard, "keyboard", 2);
+    kernel_task_create(__disk_test, "test", 2);
 }

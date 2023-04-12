@@ -5,6 +5,7 @@
 #include <common/interrupt.h>
 #include <common/assert.h>
 #include <rdix/kernel.h>
+#include <rdix/device.h>
 
 /* 值为 0 的全局变量和未初始化的全局变量是一样的，都是放在 bss 段。值都是随机的
  * 因此这样的全局变量一定要初始化后才能使用 */
@@ -198,8 +199,14 @@ void console_clean(){
     }
 }
 
+static void console_put_string(void *dev, const char* str);
+
 void console_init(){
     console_clean();
+
+    device_install(DEV_CHAR, DEV_CONSOLE,
+                NULL, "console", 0,
+                NULL, NULL, console_put_string);
 }
 
 void proc_lf(){
@@ -216,7 +223,7 @@ void proc_table(){
 }
 
 /* 已做关中断处理，可放心使用 */
-void console_put_char(char ch){
+static void console_put_char(char ch){
     u16 *vedio = (u16 *)VEDIO_BASE_ADDR;
     u16 word_block = (_color << 8) | ch;
 
@@ -257,7 +264,7 @@ void console_put_char(char ch){
  * 意味着每个 console_put_char 应当连续执行。如果中间由于竞争问题执行了其他任务的 console_put_char
  * 就会导致打印的字符串不连续，所以 console_put_string 是一个互斥事件
  * ============================================= */
-void console_put_string(const char* str){
+static void console_put_string(void *dev, const char* str){
     bool IF_stat = get_IF();
     set_IF(false);
 
