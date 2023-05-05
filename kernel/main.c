@@ -15,9 +15,12 @@
 #include <rdix/hba.h>
 #include <rdix/hardware.h>
 #include <rdix/device.h>
+#include <fs/fs.h>
 
 //#define SYS_LOG_INFO "\033[1;35;40][system info]\033[0]\t"
 #define SYS_LOG_INFO __LOG("[system]")
+
+void minix_init();
 
 /* 当通过 rdix 自己的 loader 启动时 info 保存的是内存信息
  * 当通过 grub 启动时，info 保存的时 boot infomation */
@@ -44,6 +47,9 @@ void kernel_init(u32 magic, u32 info){
     syscall_init();
     PCI_info();
     hba_init();
+
+    buffer_init();
+    minix_init();
     
     /* 开启外中断后才会进行调度 */
     set_IF(true);

@@ -20,14 +20,18 @@ List_t *new_list(){
     return list;
 }
 
-ListNode_t *new_listnode(void *owner, u32 value){
-    ListNode_t *node = (ListNode_t *)malloc(sizeof(ListNode_t));
-
+void node_init(ListNode_t *node, void *owner, u32 value){
     node->value = value;
     node->next = node;
     node->previous = node;
     node->owner = owner;
     node->container = NULL;
+}
+
+ListNode_t *new_listnode(void *owner, u32 value){
+    ListNode_t *node = (ListNode_t *)malloc(sizeof(ListNode_t));
+
+    node_init(node, owner, value);
 
     return node;
 }
@@ -79,6 +83,7 @@ void remove_node(ListNode_t *node){
     --list->number_of_node;
 }
 
+/* 压入链表头部 */
 void list_push(List_t *list, ListNode_t *node){
     /* 表明该节点不在任何链表中 */
     assert(node->container == NULL);
@@ -96,6 +101,7 @@ ListNode_t *list_pop(List_t *list){
     return node;
 }
 
+/* 压入链表尾部 */
 void list_pushback(List_t *list, ListNode_t *node){
     /* 表明该节点不在任何链表中 */
     assert(node->container == NULL);

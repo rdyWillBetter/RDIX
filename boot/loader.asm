@@ -142,11 +142,19 @@ Load_End:
 Read_Disk:
     push si
     push ax
+    push cx
 
-    mov si,DiskAddressPacket
-    mov ah,0x42
-    int 0x13
+    mov cx, 2
+    reread:
+        mov si,DiskAddressPacket
+        mov ah,0x42
+        int 0x13
+        
+        add dword [BufferSeg], 0xE00
+        add dword [BlockNum], 0x70
+        loop reread
 
+    pop cx
     pop ax
     pop si
     ret
@@ -228,7 +236,7 @@ gdtr:
 DiskAddressPacket:
 	PacketSize db 0x10
 	Reserved db 0
-	BlockCount dw 0x7f  ;单次读取上限为 0x7f(127) 个扇区
+	BlockCount dw 0x70  ;单次读取上限为 0x7f(127) 个扇区
 	BufferOffset dw 0
 	BufferSeg dw 0x2000
 	BlockNum dq 20

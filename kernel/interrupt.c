@@ -6,6 +6,7 @@
 #include <common/string.h>
 #include <common/global.h>
 #include <rdix/memory.h>
+#include <common/assert.h>
 
 #define INT_LOG_INFO __LOG("[interrupt]")
 
@@ -179,12 +180,22 @@ static void idt_init(){
 }
 
 /* dest 为目标 cpu 的编号 */
+/* 非 MSI 中断使用 */
 void install_int(u8 old_irq, u8 dest, u32 flag, handler_t handler){
     u8 new_irq = irq_override(old_irq);
     u8 vector = new_irq + START_INT_NUM;
 
     interrupt_func_table[new_irq + 0x20] = handler;
+
+    /* 配置ioapic */
     set_ioredtbl(new_irq, dest, flag, vector);
+}
+
+/* MSI 中断中没有 IRQ 概念，只有 vector */
+void install_MSI_int(pci_device_t *pci_dev, u8 vector, handler_t handler){
+    /* 初始化 MSI 中断 */
+    assert(__device_MSI_init(pci_dev, vector) == 0);
+    interrupt_func_table[vector] = handler;
 }
 
 void set_int_mask(u32 irq, bool enable){
@@ -196,32 +207,6 @@ void set_int_mask(u32 irq, bool enable){
     lo = enable ? lo & ~__IOREDTBL_MASK : lo | __IOREDTBL_MASK;
 
     _ioapic_reg_write(offset, lo);
-}
-
-bool get_IF(){
-
-    asm volatile(
-        "pushfl\n"        // 将当前 eflags 压入栈中
-        "popl %eax\n"     // 将压入的 eflags 弹出到 eax
-        "shrl $9, %eax\n" // 将 eax 右移 9 位，得到 IF 位
-        "andl $1, %eax\n" // 只需要 IF 位
-    );
-}
-
-// 设置 IF 位
-void set_IF(bool state)
-{
-    if (state)
-        asm volatile("sti\n");
-    else
-        asm volatile("cli\n");
-}
-
-bool get_and_disable_IF(){
-    bool state = get_IF();
-    set_IF(false);
-
-    return state;
 }
 
 void interrupt_init(){

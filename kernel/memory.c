@@ -10,7 +10,7 @@
 #define MEMORY_LOG_INFO __LOG("[memory info]")
 
 #define MEM_AVAILABLE_TYPE 1
-#define V_BIT_MAP_ADDR 0x4000 //虚拟内存管理表起始地址
+#define V_BIT_MAP_ADDR 0x6000 //虚拟内存管理表起始地址
 
 /* mmio 所使用的内存空间基地址 */
 extern vir_addr_t start_io_memory;
@@ -31,7 +31,7 @@ static size_t p_map_pages; //物理内存管理表所占页数
 bitmap_t v_bit_map; //内核虚拟内存管理，一页占 1 bit，用于记录该虚拟页是否被占用
 
 static u32 kernel_page_dir = 0x1000; //内核页目录
-static u32 kernel_page_table[] = {0x2000, 0x3000}; //内核页表数组，里面保存每个页表的起始物理地址
+static u32 kernel_page_table[] = {0x2000, 0x3000, 0x4000, 0x5000}; //内核页表数组，里面保存每个页表的起始物理地址
 
 /* 已做竞争保护
  * 返回物理页地址，非索引号 */
@@ -190,7 +190,8 @@ static void memory_init(u32 magic, u32 info){
      * sizeof(kernel_page_table) == 页表个数 * 4
      * V_BIT_MAP_ADDR == 0x4000，即放置虚拟内存位图表的位置为 0x4000， 极可能出现溢出的情况，需要注意。
      * 这段初始化代码应当和页表初始化放在一起或单独放。放在这里不妥。 */
-    u32 length = PAGE_IDX(KERNEL_MEMERY_SIZE - mem_base) / 8;
+    /* 内核内存位图可处理的最高内存地址只到 8M 位置，后续有部分内存虽然属于内核，但不能通过 malloc 获取 */
+    u32 length = PAGE_IDX(KERNEL_AVA_M - mem_base) / 8;
     memset((void *)V_BIT_MAP_ADDR, 0, length);
     bitmap_init(&v_bit_map, (u8 *)V_BIT_MAP_ADDR, length, PAGE_IDX(mem_base));//该处执行后 v_bit_map 指针指向 V_BIT_MAP_ADDR
 
@@ -239,9 +240,9 @@ void entry_init(page_entry_t *entry, page_idx_t pg_idx){
     entry->index = pg_idx;
 }
 
-/* 映射了内核的内存，一共映射了 8M，
+/* 映射了内核的内存，一共映射了 16M，
  * 开启了分页模式
- * 内核空间一共是 16M，后 8M 空间并没有进行映射，流出来用于映射 IO 空间 */
+ * 内核空间一共是 20M，后 4M 空间并没有进行映射，留出来用于映射 IO 寄存器 */
 static void page_mode_init(){
     page_idx_t idx = 0; //当前处理的页的索引号
 

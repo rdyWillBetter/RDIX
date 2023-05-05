@@ -4,8 +4,13 @@
 #include <common/type.h>
 #include <common/bitmap.h>
 
-#define KERNEL_MEMERY_SIZE 0x1000000
-#define IO_MEM_START 0x800000
+#define KERNEL_MEMERY_SIZE 0x1400000
+#define IO_MEM_START 0x1000000  /* io寄存器映射基地址，长度为 4M */
+#define RAMDISK_M_START 0x1000000 /* ramdisk 内存块尾部 */
+#define RAMDISK_M_START 0xC00000 /* ramdisk 内存块首部 */
+#define BUFFER_M_END 0xC00000 /* buffer 内存块尾部 */
+#define BUFFER_M_START 0x800000 /* buffer 内存块首部 */
+#define KERNEL_AVA_M 0x800000 /* 内核可通过 malloc 获取的内存最高地址 */
 #define BIOS_MEM_SIZE 0x100000
 
 #define PAGE_SIZE 0x1000

@@ -53,10 +53,6 @@ void sleep(time_t ms){
     _syscall1(SYS_NR_SLEEP, ms);
 }
 
-int32 write(fd_t fd, char *buf, size_t len){
-    return (int32)_syscall3(SYS_NR_WRITE, fd, (u32)buf, len);
-}
-
 int32 brk(void *vaddr){
     return (int32)_syscall1(SYS_NR_BRK, vaddr);
 }
@@ -83,4 +79,32 @@ pid_t waitpid(pid_t pid, int32 *status){
 
 void yield(){
     return _syscall0(SYS_NR_YIELD);
+}
+
+fd_t open(char *filename, int flags, int mode){
+    return _syscall3(SYS_NR_OPEN, filename, flags, mode);
+}
+
+fd_t create(char *filename, int mode){
+    return _syscall2(SYS_NR_CREATE, filename, mode);
+}
+
+void close(fd_t fd){
+    _syscall1(SYS_NR_CLOSE, fd);
+}
+
+int read(fd_t fd, char *buf, int count){
+    return _syscall3(SYS_NR_READ, fd, buf, count);
+}
+
+int write(fd_t fd, char *buf, int count){
+    return _syscall3(SYS_NR_WRITE, fd, buf, count);
+}
+
+int lseek(fd_t fd, idx_t offset, whence_t whence){
+    return _syscall3(SYS_NR_SEEK, fd, offset, whence);
+}
+
+int readdir(fd_t fd, dir_entry *dir, u32 count){
+    return _syscall3(SYS_NR_READDIR, fd, dir, count);
 }

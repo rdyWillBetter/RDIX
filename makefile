@@ -1,6 +1,7 @@
 BUILD=../build
 SRC=.
-GRUBCFG=.
+CONFIG=./configure
+GRUBCFG=./configure
 ISODIR=../iosdir
 
 MULTIBOOT2=0x20000
@@ -28,11 +29,11 @@ INCLUDES=-I ./include
 LD=ld
 LFLAGS=-m elf_i386 -static -Ttext $(KERNELSTARTPOINT) --section-start=multiboot2=$(MULTIBOOT2)
 
-FILE:=$(wildcard $(SRC)/kernel/*.c)
-FILE:=$(notdir $(FILE))
+FILE_KERNEL:=$(wildcard $(SRC)/kernel/*.c $(SRC)/fs/*.c $(SRC)/fs/minix1/*.c)
+FILE:=$(notdir $(FILE_KERNEL))
 OBJ:=$(patsubst %.c, $(BUILD)/%.o, $(FILE))
 
-all: vmdk $(BUILD)/master.img $(BUILD)/rdix.iso
+all: vmdk $(BUILD)/master.img $(BUILD)/rdix.iso install_grub
 
 .PHONY: test
 test:
@@ -46,6 +47,12 @@ $(BUILD)/%.o: $(SRC)/kernel/%.asm
 	nasm -f elf32 -g $^ -o $@ 
 
 $(BUILD)/%.o: $(SRC)/kernel/%.c
+	$(CC) $(CFLAGS) $(INCLUDES) -c $^ -o $@
+
+$(BUILD)/%.o: $(SRC)/fs/%.c
+	$(CC) $(CFLAGS) $(INCLUDES) -c $^ -o $@
+
+$(BUILD)/%.o: $(SRC)/fs/minix1/%.c
 	$(CC) $(CFLAGS) $(INCLUDES) -c $^ -o $@
 
 $(BUILD)/rdix.bin: $(BUILD)/start.o \
@@ -71,12 +78,11 @@ $(BUILD)/master.img: $(BUILD)/boot.bin \
 	dd if=$(BUILD)/loader.bin of=$@ bs=512 count=1 seek=15 conv=notrunc
 	dd if=$(BUILD)/kernel.bin of=$@ bs=512 count=200 seek=20 conv=notrunc
 
-$(BUILD)/rdix.iso: $(BUILD)/rdix.bin $(GRUBCFG)/grub.cfg
-	grub-file --is-x86-multiboot2 $<
-	mkdir -p $(ISODIR)/boot/grub
-	cp $(BUILD)/rdix.bin $(ISODIR)/boot
-	cp $(GRUBCFG)/grub.cfg $(ISODIR)/boot/grub
-	grub-mkrescue -o $@ $(ISODIR)
+	sfdisk $@ < $(CONFIG)/master.sfdisk
+
+	sudo losetup $(FREELOOP) --partscan $@
+	sudo mkfs.minix -1 -n 14 $(FREELOOPPT)
+	sudo losetup -d $(FREELOOP)
 
 $(BUILD)/rdix.vmdk: $(BUILD)/master.img
 	qemu-img convert -pO vmdk $< $@
@@ -92,7 +98,7 @@ bochs: $(BUILD)/master.img
 bochsb: $(BUILD)/rdix.iso
 	bochs -q -f ./bochsrc.grub -unlock
 
-AHCI_DISK=-drive id=disk,file=./test.c,if=none \
+AHCI_DISK=-drive id=disk,file=./test,if=none \
 -device ahci,id=ahci \
 -device ide-hd,drive=disk,bus=ahci.0
 
@@ -104,11 +110,57 @@ qemu: $(BUILD)/master.img
 
 .PHONY: qemub
 qemub: $(BUILD)/rdix.iso
-	qemu-system-i386 -m 32M -boot c -hda $< -s -S -nographic $(AHCI_DISK)
+	qemu-system-i386 -m 32M -boot c -hda $< -s -S $(AHCI_DISK)
 
 .PHONY: qemu-g
 qemu-g: $(BUILD)/master.img
 	qemu-system-i386 -m 32M -boot c -hda $< -s -S $(AHCI_DISK)
+
+FREELOOP=$(shell sudo losetup -f)
+FREELOOPPT=$(FREELOOP)p1
+GRUBFLAG=--force --removable --no-floppy --target=i386-pc
+
+$(BUILD)/rdix.iso:
+	mkdir -p $(dir $@)
+	touch $@
+	dd if=/dev/zero of=$@ bs=1M count=32
+	sfdisk $@ < $(CONFIG)/master.sfdisk
+
+.PHONY: install_grub
+install_grub: $(BUILD)/rdix.iso $(BUILD)/rdix.bin $(GRUBCFG)/grub.cfg
+	@echo $(FREELOOP)
+	sudo losetup $(FREELOOP) --partscan $<
+	sudo mkfs.vfat -F 32 -n MULTIBOOT $(FREELOOPPT)
+	mkdir -p $(BUILD)/mnt && sudo mount $(FREELOOPPT) $(BUILD)/mnt
+	sudo grub-install $(GRUBFLAG) --boot-directory=$(BUILD)/mnt/boot $(FREELOOP)
+	sudo cp $(GRUBCFG)/grub.cfg $(BUILD)/mnt/boot/grub
+	sudo cp $(BUILD)/rdix.bin $(BUILD)/mnt/boot
+	sudo umount $(FREELOOPPT)
+	sudo losetup -d $(FREELOOP)
+	rm -r $(BUILD)/mnt
+
+.PHONY: mount
+mount: ./test
+	sudo losetup /dev/loop20 --partscan $<
+	sudo mount /dev/loop20p1 ./mnt
+	sudo chmod 777 ./mnt
+
+.PHONY: umount
+umount: 
+	sudo umount ./mnt
+	sudo losetup -d /dev/loop20
+
+.PHONY: mkfs
+mkfs: ./test
+	sudo losetup /dev/loop20 --partscan $<
+	sudo mkfs.minix -1 -n 14 /dev/loop20p1
+	sudo mount /dev/loop20p1 ./mnt
+	sudo chmod 777 ./mnt
+
+.PHONY: refresh
+refresh:
+	make umount
+	make mount
 
 .PHONY: clean
 clean:

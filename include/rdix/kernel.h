@@ -3,6 +3,7 @@
 
 #include <common/stdarg.h>
 #include <common/type.h>
+#include <common/assert.h>
 
 /* 内核魔数，用于校验错误 */
 #define RDIX_MAGIC 0x01011017

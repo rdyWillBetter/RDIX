@@ -2,6 +2,7 @@
 #define __INTERRUPT_H__
 
 #include <common/type.h>
+#include <rdix/pci.h>
 
 //#define _INTERRUPT_PIC_MOD
 
@@ -12,6 +13,8 @@
 
 #define START_INT_NUM 0x20 //起始中断号
 #define INTEL_INT_RESERVED 0x20 //intel 使用的前32个中断
+#define IOAPIC_IRQ_NUM 0x18 // ioapic 一共外接 24 个中断
+#define MSI_INT_START (INTEL_INT_RESERVED + IOAPIC_IRQ_NUM) //msi 中断向量起始位置
 
 #define IRQ0_COUNTER 0x0 //计数器
 #define IRQ1_KEYBOARD 0x1
@@ -30,7 +33,15 @@
 #define IRQ14_DISK 0xe
 #define IRQ15_RESERVED 0xf
 
-#define IRQ16_HBA 0x10
+#define HBA_INT_NUM 0
+
+/* 原子操作 */
+#define ATOMIC_OPS(exp)                         \
+        {                                       \
+            bool st = get_and_disable_IF();     \
+            exp                                 \
+            set_IF(st);                         \
+        }
 
 typedef struct gate_t{
     u16 offset_l; //代码段，段内偏移低16位
@@ -52,9 +63,6 @@ void interrupt_init();
 void syscall_init();
 void keyboard_init();
 void set_int_mask(u32 irq, bool enable);
-bool get_IF();
-void set_IF(bool state);
-bool get_and_disable_IF();
 
 /* apic */
 enum  IOREDTBLFlags{
@@ -65,5 +73,35 @@ enum  IOREDTBLFlags{
 
 void lapic_send_eoi();
 void install_int(u8 old_irq, u8 dest, u32 flag, handler_t handler);
+void install_MSI_int(pci_device_t *pci_dev, u8 vector, handler_t handler);
+
+_inline bool get_IF(){
+    u32 res = false;
+    asm volatile(
+        "pushfl\n"        // 将当前 eflags 压入栈中
+        "popl %0\n"     // 将压入的 eflags 弹出到 eax
+        "shrl $9, %0\n" // 将 eax 右移 9 位，得到 IF 位
+        "andl $1, %0\n" // 只需要 IF 位
+        //"movb %%al, %0\n"
+        :"=a"(res)
+    );
+    return (bool)res;
+}
+
+// 设置 IF 位
+_inline void set_IF(bool state)
+{
+    if (state)
+        asm volatile("sti\n");
+    else
+        asm volatile("cli\n");
+}
+
+_inline bool get_and_disable_IF(){
+    bool state = get_IF();
+    set_IF(false);
+
+    return state;
+}
 
 #endif

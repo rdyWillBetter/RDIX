@@ -1,7 +1,0 @@
-label: dos
-label-id: 0x28be434d
-device: ../build/master.img
-unit: sectors
-sector-size: 512
-
-../build/master.img1 : start=        2048, size=       30208, type=83, bootable

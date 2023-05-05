@@ -13,6 +13,8 @@
 #define HBA_LOG_INFO __LOG("[hba]")
 #define HBA_WARNING_INFO __WARNING("[hba warning]")
 
+#define HBA_MSI_VECTOR (HBA_INT_NUM + MSI_INT_START)
+
 hba_t *hba;
 
 const char* sata_spd[4] = {
@@ -24,7 +26,7 @@ const char* sata_spd[4] = {
 
 slot_num load_ata_cmd(hba_dev_t *dev, u8 cmd, u64 startlba, u16 count);
 
-send_status_t try_send_cmd(hba_port_t *port, slot_num slot);
+send_status_t try_send_cmd(hba_dev_t *dev, slot_num slot);
 
 bool probe_hba(){
     hba = (hba_t *)malloc(sizeof(hba_t));
@@ -41,9 +43,6 @@ bool probe_hba(){
         printk(HBA_WARNING_INFO "no hba device!\n");
         return false;
     }
-
-    /* 初始化 MSI 中断 */
-    assert(__device_MSI_init(hba->dev_info, IRQ16_HBA + INTEL_INT_RESERVED) == 0);
 
     u32 cmd = read_register(hba->dev_info->bus, hba->dev_info->dev_num,\
                     hba->dev_info->function, PCI_CONFIG_SPACE_CMD);
@@ -83,8 +82,9 @@ void hba_GHC_init(){
     //hba->io_base[REG_IDX(HBA_REG_GHC)] |= HBA_GHC_HR;
     /* 判断 hba 是否处于 AHCI 模式 */
     assert(hba->io_base[REG_IDX(HBA_REG_GHC)] & HBA_GHC_AE);
-    /* 启用 HBA 全局中断 */
-    hba->io_base[REG_IDX(HBA_REG_GHC)] |= HBA_GHC_IE;
+    /* 关闭 HBA 全局中断
+     * 等磁盘初始化完成后再启用 */
+    hba->io_base[REG_IDX(HBA_REG_GHC)] &= ~HBA_GHC_IE;
     /* 清空中断暂挂 */
     hba->io_base[REG_IDX(HBA_REG_IS)] = -1;
     /* 每个端口命令列表中最多插槽 (slot) 数 */
@@ -191,7 +191,7 @@ void prase_deviceinfo(hba_dev_t* dev, u16 *data){
 send_status_t sata_send_cmd(hba_dev_t *dev, SATA_CMD_TYPE cmd, u64 startlba, u16 count){
 
     slot_num slot = load_ata_cmd(dev, cmd, startlba, count);
-    return try_send_cmd(dev->port, slot);
+    return try_send_cmd(dev, slot);
 }
 
 hba_dev_t* new_hba_device(hba_port_t *port, u8 spd){
@@ -228,7 +228,7 @@ void hba_devices_init(){
             u8 spd = (pxssts >> 4) & 0xf;
             /* 检测端口对应 ssts 寄存器 */
             if ((pxssts & 0x3 == 3) && spd){
-                list_push(devices, new_listnode(new_hba_device(new_port(port), spd), 0));
+                list_pushback(devices, new_listnode(new_hba_device(new_port(port), spd), 0));
             }
         }
     }
@@ -383,12 +383,12 @@ void __timer(){
     );
 
     /* 超时计时器时长 */
-    sleep(2000);
+    sleep(1000);
 
     port->last_status = GENERAL_ERROR;
 
-    bool st = get_IF();
-    set_IF(false);
+    bool st = get_and_disable_IF();
+
     /* 中断迟迟不来，计时结束后需要通过 timer 来解除传输进程阻塞 */
     unblock(port->sending);
 
@@ -427,14 +427,18 @@ void sata_sending_wait(hba_port_t *port, slot_num slot){
     set_IF(IF_stat);
 }
 
-send_status_t try_send_cmd(hba_port_t *port, slot_num slot){
-    
+send_status_t try_send_cmd(hba_dev_t *dev, slot_num slot){
+    hba_port_t *port = dev->port;
+
     if (port->reg_base[REG_IDX(HBA_PORT_PxSIG)] != SATA_DEV_SIG){
         port->last_status = NOT_SATA;
         return NOT_SATA;
     }
         
-    if (current_task()){
+    /* 判断是否已经开始进程调度 */
+    /* 这里 qemu 不知道为什么不会触发 ahci 的 msi 中断
+     * 所以如果是 qemu 的话就用 PIO 模式 */
+    if (current_task() && *(u32 *)dev->sata_serial != 0x30304D51){  // 'QM00'
         sata_busy_wait(port);
 
         port->last_status = GENERAL_ERROR;
@@ -465,10 +469,18 @@ send_status_t try_send_cmd(hba_port_t *port, slot_num slot){
             port->last_status = GENERAL_ERROR;
             return GENERAL_ERROR;
         }
+        /* 这里不做处理的话，开中断后会马上触发 hba 中断或其他错误 */
+        port->reg_base[REG_IDX(HBA_PORT_PxIS)] = -1;
+        hba->io_base[REG_IDX(HBA_REG_IS)] = -1;
     }
 
     port->last_status = SUCCESSFUL;
     return SUCCESSFUL;
+}
+
+static void hba_error_proc(hba_dev_t *device){
+    printk(HBA_WARNING_INFO "error report: serial %s\n", device->sata_serial);
+    printk(HBA_WARNING_INFO "PxTFD %x\n", device->port->reg_base[REG_IDX(HBA_PORT_PxTFD)]);
 }
 
 static void hba_hander(u32 int_num){
@@ -541,7 +553,7 @@ int __sata_io(hba_dev_t *dev, void *buffer, u64 startlba, size_t size, bool RorW
     if (dev->port->last_status == SUCCESSFUL)
         return 0;
     
-    return 1;
+    return EOF;
 }
 
 /* size 单位为扇区 */
@@ -554,7 +566,12 @@ static int __sata_write_secs(hba_dev_t *dev, void *buffer, size_t count, u64 sta
 }
 
 static int __sata_ioctl(hba_dev_t *dev, int cmd, void *args, int flags){
-    printk("sata ioctl hasn't been implemented\n");
+    switch(cmd){
+        case DEV_CMD_SECTOR_START: return 0;
+        case DEV_ERROR_REPORT: hba_error_proc(dev); break;
+        default: printk(HBA_WARNING_INFO "sata ioctl hasn't been implemented\n");
+                break;
+    }
 
     return 0;
 }
@@ -598,8 +615,12 @@ static void sata_install(){
             else
                 printk(HBA_LOG_INFO "(device %d) do not support 48 LBA\n", dev_num);
 
-            device_install(DEV_BLOCK, DEV_SATA_DISK, dev, dev->sata_serial, 0,
+            char name[4];
+            get_disk_name(name);
+            dev_t dev_idx = device_install(DEV_BLOCK, DEV_SATA_DISK, dev, name, 0,
                         __sata_ioctl, __sata_read_secs, __sata_write_secs);
+            
+            disk_part_install(dev_idx);
         }
         else
             printk(HBA_LOG_INFO "(device %d) error code %s\n", dev_num, error_str[dev->port->last_status]);
@@ -611,30 +632,11 @@ void hba_init(){
     sata_install();
 
     /* 安装中断前需要在 MSI 中设置中断向量值 */
-    install_int(IRQ16_HBA, 0, 0, hba_hander);
-}
+    /* bug 调试记录 */
+    /* 使用 MSI 中断的设备不需要再使用 install_int 在 ioapic 中配置中断!!! */
+    /* 中断向量已经在 pci配置空间中写好了！直接由 lapic 收集！ */
+    install_MSI_int(hba->dev_info, HBA_MSI_VECTOR, hba_hander);
 
-void disk_test(){
-    // 尝试读取扇区
-    void *buf = malloc(1 << 9);
-
-    device_t *dev = device_find(DEV_SATA_DISK, 0);
-
-    /* if (device_write(dev->dev, test_str, 1, 0x7000, 0) == 0){
-        printk(HBA_LOG_INFO "disk write success\n"); 
-    }
-    else{
-        printk("write error status: %s\n", error_str[((hba_dev_t *)dev->ptr)->port->last_status]);
-    } */
-
-    /* printk(HBA_LOG_INFO "before read disk\n");
-    mdebug(buf, 64); */
-
-    if (device_read(dev->dev, buf, 1, 0x7000, 0) == 0){
-            printk(HBA_LOG_INFO "disk read success\n");
-            mdebug(buf, 64);
-    }
-    else{
-        printk("read error status: %s\n", error_str[((hba_dev_t *)dev->ptr)->port->last_status]);
-    }
+    /* 初始化完成后再启用总中断 */
+    hba->io_base[REG_IDX(HBA_REG_GHC)] |= HBA_GHC_IE;
 }

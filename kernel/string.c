@@ -23,7 +23,7 @@ char *strcat(char *dest, const char *src){
     }
     *ptr = '\0';
 
-    return ptr;
+    return dest;
 }
 
 /* 把字符 src 串复制到 dest 中 */
@@ -37,7 +37,7 @@ char *strcpy(char *dest, const char *src){
     }
     *ptr = '\0';
 
-    return ptr;
+    return dest;
 }
 
 /* 把字符 src 串复制长度 count 到 dest 中
@@ -52,7 +52,7 @@ char *strncpy(char *dest, const char *src, size_t count){
     }
     *ptr = '\0';
 
-    return ptr;
+    return dest;
 }
 
 

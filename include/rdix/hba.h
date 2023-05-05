@@ -5,10 +5,13 @@
 #include <rdix/pci.h>
 #include <common/list.h>
 #include <rdix/ata.h>
+#include <rdix/part.h>
 
 #define HBA_CC 0x010601
 
 #define SATA_DEV_SIG 0x0101
+
+#define SECTOR_SIZE 512 // 扇区大小
 
 /* 寄存器的地址单位是字节，要转换为单位为 u32 才能在 io_base 中正常访问 */
 #define REG_IDX(addr) (addr >> 2)
@@ -67,7 +70,8 @@ typedef enum send_status_t{
 
 struct hba_port_t;
 
-/* 接在 hba 端口上的设备类型 */
+/* 接在 hba 端口上的设备类型
+ * 用于描述一个块设备 */
 typedef struct hba_dev_t{
     char sata_serial[21];
     char model[41];
@@ -80,7 +84,6 @@ typedef struct hba_dev_t{
     u8 spd;
     void *data;
     
-
     struct hba_port_t *port;
 } hba_dev_t;
 
@@ -138,9 +141,13 @@ typedef struct hba_port_t{
 
 /* hba 设备 */
 typedef struct hba_t{
+    /* pci 配置空间信息 */
     pci_device_t* dev_info;
+    /* hba 寄存器 mm 基地址 */
     u32 *io_base;
     List_t *devices;
+
+    /* 每个端口命令列表中最多插槽 (slot) 数 */
     u8 per_port_slot_cnt;
 } hba_t;
 
@@ -175,7 +182,5 @@ typedef volatile struct tagHBA_FIS
 typedef u32 slot_num;
 
 void hba_init();
-
-
 
 #endif

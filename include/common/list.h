@@ -22,6 +22,8 @@ typedef struct List{
 
 typedef bool (*Cmp_t)(u32, u32);
 
+void list_init(List_t *list);
+void node_init(ListNode_t *node, void *owner, u32 value);
 List_t *new_list();
 ListNode_t *new_listnode(void *owner, u32 value);
 bool list_isempty(List_t *list);

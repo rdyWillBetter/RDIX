@@ -227,8 +227,7 @@ static void console_put_char(char ch){
     u16 *vedio = (u16 *)VEDIO_BASE_ADDR;
     u16 word_block = (_color << 8) | ch;
 
-    bool IF_stat = get_IF();
-    set_IF(false);
+    bool IF_stat = get_and_disable_IF();
     
     switch (ch)
     {
@@ -265,8 +264,7 @@ static void console_put_char(char ch){
  * 就会导致打印的字符串不连续，所以 console_put_string 是一个互斥事件
  * ============================================= */
 static void console_put_string(void *dev, const char* str){
-    bool IF_stat = get_IF();
-    set_IF(false);
+    bool IF_stat = get_and_disable_IF();
 
     while (*str != '\0'){
         while (*str == '\033' && *(str + 1) == '[')

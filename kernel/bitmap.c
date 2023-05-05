@@ -3,8 +3,8 @@
 #include <common/assert.h>
 #include <common/interrupt.h>
 
-/* map：所需要修改的位图执政数据结构
- * buf：位图表所存放的物理地址
+/* map：所需要修改的位图容器
+ * buf：位图表所存放的线性地址
  * length：位图表所占用的长度，单位为字节
  * offset：该表所管理的虚拟内存的起始页索引号 */
 void bitmap_init(bitmap_t *map, u8 *buf, u32 length, u32 offset){
@@ -16,6 +16,7 @@ void bitmap_init(bitmap_t *map, u8 *buf, u32 length, u32 offset){
 
 bool bitmap_test(bitmap_t *map, u32 idx){
     assert(idx >= map->offset);
+    assert(idx < map->offset + map->length * 8);
 
     idx -= map->offset;
 
@@ -55,7 +56,7 @@ int bitmap_scan(bitmap_t *map, u32 count){
 
     while (local_count + start_idx < map->length){
         if (bitmap_test(map, start_idx + local_count + map->offset)){
-            start_idx += (local_count + 1);
+            start_idx += local_count + 1;
             local_count = 0;
             continue;
         }

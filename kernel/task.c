@@ -153,19 +153,24 @@ ListNode_t *task_create(task_program handle, void *param, const char *name, u32 
     tcb->jiffies = 0;
     strcpy((char *)tcb->name, name);
     tcb->uid = uid;
+    tcb->gid = 0;
     tcb->pde = (page_entry_t *)0x1000; //内核页目录，修改过memory.c后要注意这里可能出问题
     tcb->vmap = &v_bit_map; //内核虚拟内存位图，同上
     tcb->brk = KERNEL_MEMERY_SIZE;
     tcb->magic = RDIX_MAGIC;
     tcb->waitpid = 0;
+    tcb->umask = 0022;
+    tcb->i_root = get_root();
+    tcb->i_root->count++;
+    tcb->i_pwd = get_root();
+    tcb->i_pwd->count++;
+    tcb->pwd = malloc(TASK_PWD_LEN);
+    strcpy(tcb->pwd, "/");
+
+    memset(tcb->files, 0, sizeof(tcb->files));
 
     /* 防竞态 */
-    bool IF_stat = get_IF();
-    set_IF(false);
-
-    list_push(ready_list, node);
-
-    set_IF(IF_stat);
+    ATOMIC_OPS(list_push(ready_list, node);)
 
     return node;
 }
@@ -332,11 +337,15 @@ pid_t sys_fork(){
 
     /* 复制 TCB 以及内核栈 */
     memcpy((void *)child, (void *)task, PAGE_SIZE);
+    child->i_root->count++;
+    child->i_pwd->count++;
 
     child->pid = pid;
     child->ppid = ppid;
     child->ticks = child->priority;
     child->state = TASK_READY;
+    child->pwd = malloc(TASK_PWD_LEN);
+    strcpy(child->pwd, task->pwd);
 
     child->vmap = malloc(sizeof(bitmap_t));
     memcpy(child->vmap, task->vmap, sizeof(bitmap_t));
@@ -379,6 +388,10 @@ void sys_exit(int status){
 
     free_kpage((void *)task->vmap->start, 1);
     free(task->vmap);
+
+    iput(task->i_pwd);
+    iput(task->i_root);
+    free(task->pwd);
 
     free_pde();//*************
 
@@ -461,10 +474,10 @@ rollback:
 /* 已做防竞态处理
  * TCB 中状态值没有修改
  * 若 task == NULL，代表阻塞当前任务
+ * 若 list == NULL，代表阻塞任务在 block_list 中
  * block 是将任务压入列表顶部 */
 void block(List_t *list, ListNode_t *task, task_state_t task_state){
-    bool IF_stat = get_IF();
-    set_IF(false);
+    bool IF_stat = get_and_disable_IF();
 
     task = task ? task : running_task;
     list = list ? list : block_list;
@@ -483,8 +496,7 @@ void block(List_t *list, ListNode_t *task, task_state_t task_state){
 /* 如果输入节点为空，那么直接弹出阻塞链表尾部节点
  * 并将其加入就绪队列 */
 void unblock(ListNode_t *task){
-    bool IF_stat = get_IF();
-    set_IF(false);
+    bool IF_stat = get_and_disable_IF();
 
     if (!task)
         task = list_popback(block_list);
@@ -537,6 +549,7 @@ void __idle();
 void __init();
 void __keyboard();
 void __disk_test();
+void __disk_test2();
 
 void task_init(){
     memset(task_bucket, 0, sizeof(task_bucket));
@@ -552,4 +565,5 @@ void task_init(){
     user_task_create(__init, "init", 5);
     kernel_task_create(__keyboard, "keyboard", 2);
     kernel_task_create(__disk_test, "test", 2);
+    //kernel_task_create(__disk_test2, "test", 2);
 }

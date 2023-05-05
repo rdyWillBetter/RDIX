@@ -223,7 +223,7 @@ int __device_MSI_init(pci_device_t *dev, u8 vector){
     cap_p_t cap_p = capability_search(dev, PCI_CAP_ID_MSI);
 
     if (cap_p == PCI_CAP_END_PTR)
-        return -1;
+        return EOF;
 
     u32 reg = read_register(dev->bus,\
                             dev->dev_num,

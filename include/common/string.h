@@ -13,6 +13,8 @@ char *strcpy(char *dest, const char *src);
 char *strncpy(char *dest, const char *src, size_t count);
 bool strcmp(const char *str0, const char*str1, size_t count);
 
+size_t sprintf(char *dest, const char *fmt, ...);
+
 void *memcpy(void *dest, const void *src, size_t n);
 void *memset(void *dest, const char ch, size_t n);
 
