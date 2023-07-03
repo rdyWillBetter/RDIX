@@ -44,6 +44,7 @@ memory_detect:
     mov di,mem_info
     xor ebx,ebx
     mov edx,0x534d4150
+    mov dword [mem_info_count], 0
 
 m_next:
     mov eax,0xe820
@@ -54,6 +55,7 @@ m_next:
     add dword [mem_info_count], 1
     cmp ebx, 0
     jne m_next
+
     jmp prepare_protected_mode
 
 error:

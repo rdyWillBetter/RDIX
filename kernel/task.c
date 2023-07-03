@@ -301,6 +301,7 @@ void user_task_create(user_target_t target, const char *name, u32 priority){
     task_create((task_program)kernel_to_user, (void *)container, name, priority, USER_UID);
 }
 
+/* 开启内核线程进行调试的时候要手动开中断，手动开中断！ */
 void kernel_task_create(user_target_t target, const char *name, u32 priority){
     task_create(target, NULL, name, priority, USER_UID);
 }
@@ -550,6 +551,7 @@ void __init();
 void __keyboard();
 void __disk_test();
 void __disk_test2();
+void __usb_test();
 
 void task_init(){
     memset(task_bucket, 0, sizeof(task_bucket));
@@ -561,9 +563,12 @@ void task_init(){
 
     running_task = NULL;
 
+    /* 内核线程在开启时要手动开中断！手动开中断！手动开中断！重要的事情说三遍 */
+    /* 不然容易产生全局 bug */
     kernel_task_create(__idle, "idle", 1);
-    user_task_create(__init, "init", 5);
-    kernel_task_create(__keyboard, "keyboard", 2);
-    kernel_task_create(__disk_test, "test", 2);
+    kernel_task_create(__usb_test, "test", 3);
+    user_task_create(__init, "init", 3);
+    //kernel_task_create(__keyboard, "keyboard", 2);
+    //kernel_task_create(__disk_test, "test", 2);
     //kernel_task_create(__disk_test2, "test", 2);
 }

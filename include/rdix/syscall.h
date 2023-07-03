@@ -21,6 +21,12 @@ typedef enum syscall_t{
     SYS_NR_WRITE,
     SYS_NR_SEEK,
     SYS_NR_READDIR,
+    SYS_NR_MKDIR,
+    SYS_NR_RMDIR,
+    SYS_NR_CHDIR,
+    SYS_NR_GETPWD,
+    SYS_NR_LINK,
+    SYS_NR_UNLINK,
 } syscall_t;
 
 u32 test();
@@ -38,5 +44,11 @@ int read(fd_t fd, char *buf, int count);
 int write(fd_t fd, char *buf, int count);
 int lseek(fd_t fd, idx_t offset, whence_t whence);
 int readdir(fd_t fd, dir_entry *dir, u32 count);
+int mkdir(const char *pathname, int mode);
+int rmdir(const char *pathname);
+int chdir(char *pathname);
+void getpwd(char *buf, size_t len);
+int link(char *oldname, char *newname);
+int unlink(char *pathname);
 
 #endif

@@ -9,6 +9,7 @@
 #include <common/assert.h>
 
 #define INT_LOG_INFO __LOG("[interrupt]")
+#define INT_WARNING_INFO __WARNING("[interrupt]")
 
 #define INT_SIZE 0x40
 #define IDT_SIZE 256
@@ -111,7 +112,7 @@ static void sys_exception(
  * 但是关机再开机后表现正常。
  * ============================================================================= */
 static void default_exception(u32 int_num, u32 code){
-    printk("default exception, in interrupt [0x%x]\n", int_num);
+    printk(INT_WARNING_INFO "default exception, in interrupt [0x%x]\n", int_num);
     lapic_send_eoi();
 }
 
@@ -128,7 +129,7 @@ static void idt_init(){
         idt_table[i].reserved = 0;
         idt_table[i].type = 0xe;        //0b1110，中断门
         idt_table[i].segment = 0;
-        idt_table[i].DPL = 0;           //内核态
+        idt_table[i].DPL = DPL_KERNEL;           //内核态
         idt_table[i].present = 1;
     }
 
@@ -153,6 +154,7 @@ static void idt_init(){
     syscall_entry->offset_l = (u32)syscall_handle;
     syscall_entry->offset_h = ((u32)syscall_handle >> 16);
 
+    /* 系统调用 0x80 的中断描述符处于用户态 */
     /* 目标代码段的 DPL 代表了调用者的最高特权级 */
     syscall_entry->selector = KERNEL_CODE_SEG << 3 | DPL_KERNEL;
     syscall_entry->reserved = 0;
@@ -192,10 +194,17 @@ void install_int(u8 old_irq, u8 dest, u32 flag, handler_t handler){
 }
 
 /* MSI 中断中没有 IRQ 概念，只有 vector */
-void install_MSI_int(pci_device_t *pci_dev, u8 vector, handler_t handler){
+int install_MSI_int(pci_device_t *pci_dev, u8 vector, handler_t handler){
     /* 初始化 MSI 中断 */
-    assert(__device_MSI_init(pci_dev, vector) == 0);
     interrupt_func_table[vector] = handler;
+    return __device_MSI_init(pci_dev, vector);
+}
+
+void install_MSI_X_int(pci_device_t *dev, u8 used_bar,
+                        void *mapped_addr, u8 *vec_array,
+                        size_t arr_sizec, handler_t *handler_array)
+{
+
 }
 
 void set_int_mask(u32 irq, bool enable){

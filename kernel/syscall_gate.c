@@ -49,6 +49,12 @@ extern int sys_read(fd_t fd, char *buf, int count);
 extern int sys_write(fd_t fd, char *buf, int count);
 extern int sys_lseek(fd_t fd, idx_t offset, whence_t whence);
 extern int sys_readdir(fd_t fd, dir_entry *dir, u32 count);
+extern int sys_mkdir(const char *pathname, int mode);
+extern int sys_rmdir(const char *pathname);
+extern int sys_chdir(char *pathname);
+void sys_getpwd(char *buf, size_t len);
+int sys_link(char *oldname, char *newname);
+int sys_unlink(char *pathname);
 
 void syscall_init(){
 
@@ -72,4 +78,10 @@ void syscall_init(){
     syscall_table[SYS_NR_WRITE] = (syscall_gate_t)sys_write;
     syscall_table[SYS_NR_SEEK] = (syscall_gate_t)sys_lseek;
     syscall_table[SYS_NR_READDIR] = (syscall_gate_t)sys_readdir;
+    syscall_table[SYS_NR_MKDIR] = (syscall_gate_t)sys_mkdir;
+    syscall_table[SYS_NR_RMDIR] = (syscall_gate_t)sys_rmdir;
+    syscall_table[SYS_NR_CHDIR] = (syscall_gate_t)sys_chdir;
+    syscall_table[SYS_NR_GETPWD] = (syscall_gate_t)sys_getpwd;
+    syscall_table[SYS_NR_LINK] = (syscall_gate_t)sys_link;
+    syscall_table[SYS_NR_UNLINK] = (syscall_gate_t)sys_unlink;
 }

@@ -20,14 +20,17 @@
 //#define SYS_LOG_INFO "\033[1;35;40][system info]\033[0]\t"
 #define SYS_LOG_INFO __LOG("[system]")
 
+extern hba_t *hba;
 void minix_init();
+void xhc_init();
 
 /* 当通过 rdix 自己的 loader 启动时 info 保存的是内存信息
  * 当通过 grub 启动时，info 保存的时 boot infomation */
 void kernel_init(u32 magic, u32 info){
     device_init();
     console_init();
-    
+    /* printk("%x\n", *(u32*)info);
+    while(true); */
     if (magic == RDIX_MAGIC)
         printk(SYS_LOG_INFO "Boot by RDIX LOADER\n");
     else if (magic == MULTIBOOT_OS_MAGIC)
@@ -45,12 +48,15 @@ void kernel_init(u32 magic, u32 info){
     task_init();
     PCI_init();
     syscall_init();
-    PCI_info();
-    hba_init();
 
-    buffer_init();
-    minix_init();
-    
+    /* pci 设备的初始化可以做一个统一 */
+    hba_init();
+    xhc_init();
+
+    //buffer_init();
+    //minix_init();
+    /* 初始化完成后再启用 PCI 设备的总中断，开启总中断后就会积累中断 */
+    hba->io_base[REG_IDX(HBA_REG_GHC)] |= HBA_GHC_IE;
     /* 开启外中断后才会进行调度 */
     set_IF(true);
 

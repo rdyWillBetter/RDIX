@@ -199,7 +199,7 @@ void console_clean(){
     }
 }
 
-static void console_put_string(void *dev, const char* str);
+static void console_put_string(void *dev, const char* str, int count);
 
 void console_init(){
     console_clean();
@@ -263,10 +263,10 @@ static void console_put_char(char ch){
  * 意味着每个 console_put_char 应当连续执行。如果中间由于竞争问题执行了其他任务的 console_put_char
  * 就会导致打印的字符串不连续，所以 console_put_string 是一个互斥事件
  * ============================================= */
-static void console_put_string(void *dev, const char* str){
+static void console_put_string(void *dev, const char* str, int count){
     bool IF_stat = get_and_disable_IF();
 
-    while (*str != '\0'){
+    while (*str != '\0' && count--){
         while (*str == '\033' && *(str + 1) == '[')
             str = _color_proc(str);
         

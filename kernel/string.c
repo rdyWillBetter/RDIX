@@ -5,6 +5,8 @@
 
 bool strcmp(const char *str0, const char *str1, size_t count){
     for (int i = 0; i < count; ++i){
+        if (!str0[i] && !str1[i])
+            break;
         if (str0[i] != str1[i])
             return false;
     }

@@ -85,13 +85,13 @@ typedef struct page_error_code_t
 void mem_pg_init(u32 magic, u32 info);
 
 /* count 单位为页
- * 从该进程的虚拟内存中申请一块长度为 count 的连续内存，返回内存起始地址指针 */
+ * 从内核虚拟内存中申请一块长度为 count 的连续内存，返回内存起始地址指针 */
 void *alloc_kpage(u32 count);
 
-/* 释放的是虚拟内存，不是物理内存 */
+/* 释放内核虚拟内存，不是物理内存 */
 void free_kpage(void *vaddr, u32 count);
 
-/* 这两个对应的是非内核版本 */
+/* 这两个对应的是非内核版本，获取当前进程的内存 */
 void *_alloc_page(u32 count);
 void _free_page(void *vaddr, u32 count);
 

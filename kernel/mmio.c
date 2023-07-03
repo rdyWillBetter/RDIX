@@ -7,7 +7,8 @@ extern bitmap_t v_bit_map;
 vir_addr_t start_io_memory;
 
 /* 设备 IO 映射专用
- * 将 n 个物理页映射到内核 IO 空间*/
+ * 将 n 个物理页映射到内核 IO 空间 
+ * 有 bug 可能跨多个页表 */
 vir_addr_t link_nppage(phy_addr_t addr, size_t size){
     assert((u32)addr > mem_size);
     assert(start_io_memory >= IO_MEM_START && (start_io_memory + size) <= KERNEL_MEMERY_SIZE);

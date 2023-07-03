@@ -86,7 +86,7 @@ int sys_write(fd_t fd, char *buf, int count)
     if (fd == stdout || fd == stderr)
     {
         device_t *device = device_find(DEV_CONSOLE, 0);
-        return device_write(device->dev, buf, 0, 0, 0);
+        return device_write(device->dev, buf, count, 0, 0);
     }
 
     TCB_t *task = (TCB_t *)current_task()->owner;

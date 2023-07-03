@@ -6,6 +6,8 @@
 
 #define ACPI_LOG_INFO __LOG("[acpi]")
 
+// todo: ACPICA 子系统实现
+
 /* lapic 寄存器是内存映射，通过内存访问，需要映射到虚拟地址空间
  * 位宽是 32bit */
 volatile u8 *lapic_base;

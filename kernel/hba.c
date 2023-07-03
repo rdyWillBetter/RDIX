@@ -31,34 +31,30 @@ send_status_t try_send_cmd(hba_dev_t *dev, slot_num slot);
 bool probe_hba(){
     hba = (hba_t *)malloc(sizeof(hba_t));
     
-    hba->devices = new_list();
-    hba->io_base = NULL;
-    hba->dev_info = NULL;
-
     /* 在 PCI 设备树中查找 hba 设备 */
     hba->dev_info = get_device_info(HBA_CC);
 
     /* 设备不存在 */
     if (hba->dev_info == NULL){
         printk(HBA_WARNING_INFO "no hba device!\n");
+        free(hba);
         return false;
     }
 
-    u32 cmd = read_register(hba->dev_info->bus, hba->dev_info->dev_num,\
-                    hba->dev_info->function, PCI_CONFIG_SPACE_CMD);
+    hba->devices = new_list();
+    hba->io_base = NULL;
+
+    u32 cmd = pci_dev_reg_read(hba->dev_info, PCI_CONFIG_SPACE_CMD);
 
     /* 启用 mmio 访问，启用设备间访问 */
     cmd |= __PCI_CS_CMD_MMIO_ENABLE | __PCI_CS_CMD_BUS_MASTER_ENABLE;
 
-    write_register(hba->dev_info->bus, hba->dev_info->dev_num,\
-                    hba->dev_info->function, PCI_CONFIG_SPACE_CMD, cmd);
+    pci_dev_reg_write(hba->dev_info, PCI_CONFIG_SPACE_CMD, cmd);
 
 
     /* 存在 hba 设备 */
     /* 将 io 物理地址映射到虚拟内存空间 */
     hba->io_base = (u32 *)link_nppage(hba->dev_info->BAR[5].base_addr, hba->dev_info->BAR[5].size);
-    
-    phy_addr_t paddr = get_phy_addr(hba->io_base);
 
     return true;
 }
@@ -483,7 +479,7 @@ static void hba_error_proc(hba_dev_t *device){
     printk(HBA_WARNING_INFO "PxTFD %x\n", device->port->reg_base[REG_IDX(HBA_PORT_PxTFD)]);
 }
 
-static void hba_hander(u32 int_num){
+static void hba_handler(u32 int_num){
     printk(HBA_LOG_INFO "in interrupt [0x%x]\n", int_num);
     
     List_t *devices = hba->devices;
@@ -589,10 +585,6 @@ char *test_str = "the user data shall be written to \n"\
             "non-volatile write caching in the device is enabled.\n";
 
 static void hba_ctrl_init(){
-    /* 没有 hba 设备 */
-    if (!probe_hba())
-        return;
-
     hba_GHC_init();
     hba_devices_init();
 }
@@ -628,6 +620,10 @@ static void sata_install(){
 }
 
 void hba_init(){
+    /* 没有 hba 设备 */
+    if (!probe_hba())
+        return;
+        
     hba_ctrl_init();
     sata_install();
 
@@ -635,8 +631,5 @@ void hba_init(){
     /* bug 调试记录 */
     /* 使用 MSI 中断的设备不需要再使用 install_int 在 ioapic 中配置中断!!! */
     /* 中断向量已经在 pci配置空间中写好了！直接由 lapic 收集！ */
-    install_MSI_int(hba->dev_info, HBA_MSI_VECTOR, hba_hander);
-
-    /* 初始化完成后再启用总中断 */
-    hba->io_base[REG_IDX(HBA_REG_GHC)] |= HBA_GHC_IE;
+    install_MSI_int(hba->dev_info, HBA_MSI_VECTOR, hba_handler);
 }

@@ -29,7 +29,7 @@ INCLUDES=-I ./include
 LD=ld
 LFLAGS=-m elf_i386 -static -Ttext $(KERNELSTARTPOINT) --section-start=multiboot2=$(MULTIBOOT2)
 
-FILE_KERNEL:=$(wildcard $(SRC)/kernel/*.c $(SRC)/fs/*.c $(SRC)/fs/minix1/*.c)
+FILE_KERNEL:=$(wildcard $(SRC)/kernel/*.c $(SRC)/fs/*.c $(SRC)/fs/minix1/*.c $(SRC)/buildin/*.c $(SRC)/hd/usb3.0/*.c)
 FILE:=$(notdir $(FILE_KERNEL))
 OBJ:=$(patsubst %.c, $(BUILD)/%.o, $(FILE))
 
@@ -46,13 +46,19 @@ $(BUILD)/%.bin: $(SRC)/boot/%.asm
 $(BUILD)/%.o: $(SRC)/kernel/%.asm
 	nasm -f elf32 -g $^ -o $@ 
 
-$(BUILD)/%.o: $(SRC)/kernel/%.c
+$(BUILD)/%.o: $(SRC)/kernel/%.c 
+	$(CC) $(CFLAGS) $(INCLUDES) -c $^ -o $@ 
+
+$(BUILD)/%.o: $(SRC)/fs/%.c 
 	$(CC) $(CFLAGS) $(INCLUDES) -c $^ -o $@
 
-$(BUILD)/%.o: $(SRC)/fs/%.c
+$(BUILD)/%.o: $(SRC)/fs/minix1/%.c 
+	$(CC) $(CFLAGS) $(INCLUDES) -c $^ -o $@
+	
+$(BUILD)/%.o: $(SRC)/buildin/%.c 
 	$(CC) $(CFLAGS) $(INCLUDES) -c $^ -o $@
 
-$(BUILD)/%.o: $(SRC)/fs/minix1/%.c
+$(BUILD)/%.o: $(SRC)/hd/usb3.0/%.c
 	$(CC) $(CFLAGS) $(INCLUDES) -c $^ -o $@
 
 $(BUILD)/rdix.bin: $(BUILD)/start.o \
@@ -75,7 +81,7 @@ $(BUILD)/master.img: $(BUILD)/boot.bin \
 	test -n "$$(find $(BUILD)/kernel.bin -size -100k)"
 
 	dd if=$(BUILD)/boot.bin of=$@ bs=512 count=2 conv=notrunc
-	dd if=$(BUILD)/loader.bin of=$@ bs=512 count=1 seek=15 conv=notrunc
+	dd if=$(BUILD)/loader.bin of=$@ bs=512 count=2 seek=15 conv=notrunc
 	dd if=$(BUILD)/kernel.bin of=$@ bs=512 count=200 seek=20 conv=notrunc
 
 	sfdisk $@ < $(CONFIG)/master.sfdisk
@@ -87,8 +93,11 @@ $(BUILD)/master.img: $(BUILD)/boot.bin \
 $(BUILD)/rdix.vmdk: $(BUILD)/master.img
 	qemu-img convert -pO vmdk $< $@
 
+$(BUILD)/rdixiso.vmdk: $(BUILD)/rdix.iso
+	qemu-img convert -pO vmdk $< $@
+
 .PHONY: vmdk
-vmdk: $(BUILD)/rdix.vmdk
+vmdk: $(BUILD)/rdix.vmdk $(BUILD)/rdixiso.vmdk
 
 .PHONY: bochs
 bochs: $(BUILD)/master.img
@@ -100,7 +109,9 @@ bochsb: $(BUILD)/rdix.iso
 
 AHCI_DISK=-drive id=disk,file=./test,if=none \
 -device ahci,id=ahci \
--device ide-hd,drive=disk,bus=ahci.0
+-device ide-hd,drive=disk,bus=ahci.0 \
+-usb \
+-device qemu-xhci
 
 QEMU=-monitor stdio
 
@@ -161,6 +172,10 @@ mkfs: ./test
 refresh:
 	make umount
 	make mount
+
+.PHONY: usb_make
+usb_make:
+	sudo dd if=../build/master.img of=/dev/sdb bs=32M
 
 .PHONY: clean
 clean:

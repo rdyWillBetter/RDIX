@@ -25,7 +25,7 @@ super_block_t *read_super(dev_t dev){
     sb->dev = dev;
     sb->buf = bread(dev, 1);
     sb->desc = (d_super_block *)sb->buf->b_data;
-
+    
     assert(sb->desc->magic == MINIX1_MAGIC);
 
     memset(sb->imaps, 0, sizeof(sb->imaps));

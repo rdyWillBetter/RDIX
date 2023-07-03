@@ -33,7 +33,9 @@
 #define IRQ14_DISK 0xe
 #define IRQ15_RESERVED 0xf
 
+/* MSI or MSI-X 使用的中断向量，相对于 MSI_INT_START 的偏移 */
 #define HBA_INT_NUM 0
+#define XHC_INT_NUM 1
 
 /* 原子操作 */
 #define ATOMIC_OPS(exp)                         \
@@ -73,7 +75,7 @@ enum  IOREDTBLFlags{
 
 void lapic_send_eoi();
 void install_int(u8 old_irq, u8 dest, u32 flag, handler_t handler);
-void install_MSI_int(pci_device_t *pci_dev, u8 vector, handler_t handler);
+int install_MSI_int(pci_device_t *pci_dev, u8 vector, handler_t handler);
 
 _inline bool get_IF(){
     u32 res = false;

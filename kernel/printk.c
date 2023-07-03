@@ -12,14 +12,15 @@ static char buf[1024];
 void printk(const char *fmt, ...){
     va_list arg;
     va_start(arg, fmt);
+    int n = 0;
 
-    ATOMIC_OPS(vsprintf(buf, fmt, arg););
+    ATOMIC_OPS(n = vsprintf(buf, fmt, arg););
     va_end(arg);
 
     /* 屏显函数中已经设置关中断，无需重复设置 */
     device_t *dev = device_find(DEV_CONSOLE, 0);
     assert(dev);
-    device_write(dev->dev, buf, 0, 0, 0);
+    device_write(dev->dev, buf, n, 0, 0);
 }
 
 /* 将模式串输出到指定字符串 dest */

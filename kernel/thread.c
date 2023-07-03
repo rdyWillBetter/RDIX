@@ -21,10 +21,12 @@ void __idle(){
     }
 }
 
+int osh_main();
 #define __USER_LOG_INGO __LOG("[user mode]")
 void __init(){
+    
     /* 用户进程不许要手动开中断，详情见 kernel_to_user() */
-    while (true){
+    //while (true){
         /* pid_t pid = fork();
 
         if (pid == 0){
@@ -43,10 +45,60 @@ void __init(){
             }
         }
         while (true); */
+    //}
+
+    /* pid_t pid = fork();
+    int status = -1;
+
+    if (pid){
+        pid_t t = 0;
+        t = waitpid(pid, &status);
+        printf("pid_%d, exit code %d", t, status);
+    }      
+    else
+        osh_main(); */
+    
+    while (true);
+}
+
+#include <rdix/xhci.h>
+extern xhc_t* xhc;
+extern u64 *debug_pba;
+void __usb_test(){
+    asm volatile("sti");
+    int_reg_set *int_set = (int_reg_set *)((u32)xhc->run_base + 0x20);
+    u32 *data = int_set[0].ERDP_Lo & ~0x3f;
+    //u32 *data_hi = int_set[0].ERDP_Hi;
+    
+    /* for (int i = 0; i < 7; ++i){
+        xhc->op_base[0x100 + 4 * i] |= 0x10;
+    }
+ */
+    while (true){
+        
+        //printk("int_set[0].ERDP_Lo = %x\n", int_set[0].ERDP_Lo);
+        //printk("IMAN_%x| ", int_set[0].IMAN);
+        
+        //printk("ERDP_Lo_%x |IMAN_%x| EHB_%x\n", int_set[0].ERDP_Lo, int_set[0].IMAN, int_set[0].ERDP_Lo & 0x3f);
+        //printk("EHB_%x\n", int_set[0].ERDP_Lo & 0xf);
+       /*  for (int i = 0; i < 7; ++i){
+            printk("\033[0;33;40]p%d\033[0]_%x| ", i,xhc->op_base[0x100 + 4 * i]);
+        } */
+
+/*         for (int i = 0; i < 4; ++i)
+            printk("\033[0;33;40]D%d\033[0] %x %x %x %x| ", i, data[i * 4], data[i * 4 + 1], data[i * 4 + 2], data[i * 4 + 3]);
+ */
+        //printk("\n");
+
+        //data[3] &= ~1;
+        //int_set[0].ERDP_Lo = (u32)data | 8;
+        //int_set[0].ERDP_Hi = 0;
+        //while (true);
+        //sleep(3000);
     }
 }
 
-void __keyboard(){
+/* void __keyboard(){
     set_IF(true);
     char ch;
     device_t *device = device_find(DEV_KEYBOARD, 0);
@@ -56,7 +108,7 @@ void __keyboard(){
         device_read(device->dev, &ch, 1, 0, 0);
         printk("%c", ch);
     }
-}
+} */
 
 #define PART_LOG_INFO __LOG("[part test]")
 void __test(idx_t idx){
@@ -95,18 +147,25 @@ void __test(idx_t idx){
     //assert(sys_unlink("/test6") == 0);
     //assert(sys_unlink("/hello") == 0);
 
-    fd_t fk = EOF;
+    /* fd_t fk = EOF;
     char data[16] = "hello by write\n"; 
     assert((fk = open("hello/fk", O_TRUNC | O_RDWR, 0777)) != EOF);
-    write(fk, data, 16);
+    write(fk, data, 16); */
+
+    chdir("/hello");
 
     sync_dev(dir->dev);
     printk("\tinode mode\t%d\n", dir->desc->mode);
 }
 
+void _test2(){
+    
+    while (true);
+}
+
 void __disk_test(){
     set_IF(true);
-    __test(0);
+    _test2();
     while (true);
 }
 

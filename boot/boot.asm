@@ -77,7 +77,7 @@ Read_Disk:
     ret
 
 Read_INIT_RAW:
-    mov word [BlockCount], 1
+    mov word [BlockCount], 2
     mov dword [BlockNum], 15
     mov word [BufferOffset], 0
     mov word [BufferSeg], 0x1000
@@ -188,9 +188,9 @@ error_message db "[error] 0",0x0d,0x0a,0
 DiskAddressPacket:
 	PacketSize db 0x10
 	Reserved db 0
-	BlockCount dw 1 ; 要加载的扇区个数
-	BufferOffset dw 0x7e00
-	BufferSeg dw 0
+	BlockCount dw 2 ; 要加载的扇区个数
+	BufferOffset dw 0x0
+	BufferSeg dw 0x1000
 	BlockNum dd 15 ; 要加载的扇区逻辑起始位置
 	dd 0
 

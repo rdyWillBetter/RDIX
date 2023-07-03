@@ -253,6 +253,8 @@ int sys_mkdir(const char *pathname, int mode){
     iput(dir);
     iput(childnode);
 
+    sync_dev(dir->dev);
+
     brelse(bf);
 
     return 0;
@@ -528,8 +530,77 @@ makeup:
 rollback:
     brelse(buf);
     iput(dir);
-    iput(inode);
+    if (inode)
+        iput(inode);
     return NULL;
+}
+
+/* 获得最后一个分隔符位置，不包含末尾 */
+char *strrsep(const char *str){
+    char *prev = NULL;
+
+    while(*str){
+        if (IS_SEPARATOR(*str) && str[1])
+            prev = str;
+        ++str;
+    }
+    return prev;
+}
+
+/* 获得第一个分隔符位置 */
+char *strsep(const char *str){
+    while(*str){
+        if (IS_SEPARATOR(*str))
+            return str;
+        ++str;
+    }
+    return NULL;
+}
+
+/* 在尾部添加分隔符 */
+void addsep(char *str){
+    size_t len = length(str);
+    if (IS_SEPARATOR(str[len - 1]))
+        return;
+
+    str[len] = '/';
+    str[len + 1] = '\0';
+}
+
+void abspath(char *oldpath, char *newpath){
+    addsep(newpath);
+        
+    if (IS_SEPARATOR(*newpath)){
+        strcpy(oldpath, newpath);
+        return;
+    }
+        
+    if (strcmp(newpath, "..", 2)){
+        char *old = NULL, *new = NULL;
+        if (length(oldpath) != 1)
+            old = strrsep(oldpath) + 1;
+        else
+            old = oldpath + 1;
+        if (length(newpath) > 3)
+            new = newpath + 3;
+        if (new)
+            strcpy(old, new);
+        else
+            *old = '\0';
+        return;
+    }
+
+    if (strcmp(newpath, ".", 1)){
+        char *new = NULL;
+        if (length(newpath) > 2)
+            new = newpath + 2;
+        if (new)
+            strcpy(oldpath[length(oldpath)], new);
+        return;
+    }
+
+    strcpy(oldpath + length(oldpath), newpath);
+    addsep(newpath);
 }
 
 int sys_chdir(char *pathname)
@@ -537,7 +608,7 @@ int sys_chdir(char *pathname)
     TCB_t *task = (TCB_t *)current_task()->owner;
     m_inode *inode = namei(pathname);
     if (!inode)
-        goto rollback;
+        return EOF;
     if (!ISDIR(inode->desc->mode) || inode == task->i_pwd)
         goto rollback;
 
@@ -550,4 +621,10 @@ int sys_chdir(char *pathname)
 rollback:
     iput(inode);
     return EOF;
+}
+
+void sys_getpwd(char *buf, size_t len){
+    TCB_t *task = (TCB_t *)current_task()->owner;
+
+    strncpy(buf, task->pwd, len);
 }

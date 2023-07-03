@@ -95,18 +95,19 @@ static void memory_init(u32 magic, u32 info){
         u32 count = *(u32*)info;
         /* 指向第一个内存检测条目(entry) */
         mem_adrs *info_ptr = (mem_adrs*)(info + 4);
-
+/*         printk("%x\n", count);
+        while(true); */
         
         for (int i = 0; i < count; ++i){
             /* base 和 length 都是64位数据，这里只读取了低 32 位的数据，
             * 数据有丢失，今后可以进一步修改以提高操作系统性能 */
-            /*
-            printk("count = %02d, base = %#p, length = %#p, type = %d\n",\
+            
+/*             printk("count = %02d, base = %#p, length = %#p, type = %d\n",\
             i,\
             (u32)info_ptr[i].base,\
             (u32)info_ptr[i].length,\
-            (u32)info_ptr[i].type);
-            */
+            (u32)info_ptr[i].type); */
+           
             /* 从 1M 以外的空间选取了一块相对较大的空间作为保护模式下的内存，
             * 1M 以外空间的内存不一定连续，这里只取相对大的一块，很有可能有其他更大的块被浪废了 */
             if (info_ptr[i].type == MEM_AVAILABLE_TYPE && info_ptr[i].base == BIOS_MEM_SIZE){

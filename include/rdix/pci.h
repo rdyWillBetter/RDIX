@@ -18,6 +18,7 @@
 
 /* 能力链表中的能力id */
 #define PCI_CAP_ID_MSI 0x5
+#define PCI_CAP_ID_MSI_X 0x11
 
 /* 能力链表尾指针 */
 #define PCI_CAP_END_PTR 0
@@ -28,13 +29,13 @@ enum PCI_CS_CMD_FLAGS{
     __PCI_CS_CMD_BUS_INT_DISABLE = (1 << 10),
 };
 
-typedef struct PCI_tree_t{
+typedef struct PCI_bus_t{
     int32 bus_num;
     /* 当前总线的设备链表 */
     List_t *dev_list;
     /* 该总线的子总线 */
-    struct PCI_tree_t *child;
-} PCI_tree_t;
+    struct PCI_bus_t *next;
+} PCI_bus_t;
 
 typedef struct bar_entry{
     u32 base_addr;
@@ -55,11 +56,18 @@ typedef struct device_t{
     bar_entry BAR[6];
 } pci_device_t;
 
+typedef struct MSI_X_TABLE_ENTRY{
+    u32 Msg_Addr;
+    u32 Msg_Upper_Addr;
+    u32 Msg_Data;
+    u32 Vector_Control;
+} MSI_X_TABLE_ENTRY;
+
 void PCI_init();
 void PCI_info();
 
-u32 read_register(u8 bus, u8 dev_num, u8 function, u8 reg);
-void write_register(u8 bus, u8 dev_num, u8 function, u8 reg, u32 data);
+u32 pci_dev_reg_read(pci_device_t *dev, u8 reg);
+void pci_dev_reg_write(pci_device_t *dev, u8 reg, u32 data);
 
 pci_device_t *get_device_info(u32 dev_cc);
 
@@ -68,5 +76,6 @@ typedef u8 cap_p_t;
 cap_p_t capability_search(pci_device_t *dev, u8 cap_id);
 
 int __device_MSI_init(pci_device_t *dev, u8 vector);
+MSI_X_TABLE_ENTRY *__device_MSI_X_init(pci_device_t *dev, u8 used_bar, void *mapped_addr, u8 *vec_array, size_t arr_size);
 
 #endif

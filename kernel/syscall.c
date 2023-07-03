@@ -108,3 +108,27 @@ int lseek(fd_t fd, idx_t offset, whence_t whence){
 int readdir(fd_t fd, dir_entry *dir, u32 count){
     return _syscall3(SYS_NR_READDIR, fd, dir, count);
 }
+
+int mkdir(const char *pathname, int mode){
+    return _syscall2(SYS_NR_MKDIR, pathname, mode);
+}
+
+int rmdir(const char *pathname){
+    return _syscall1(SYS_NR_RMDIR, pathname);
+}
+
+int chdir(char *pathname){
+    return _syscall1(SYS_NR_CHDIR, pathname);
+}
+
+void getpwd(char *buf, size_t len){
+    return _syscall2(SYS_NR_GETPWD, buf, len);
+}
+
+int link(char *oldname, char *newname){
+    return _syscall2(SYS_NR_LINK, oldname, newname);
+}
+
+int unlink(char *pathname){
+    return _syscall1(SYS_NR_UNLINK, pathname);
+}
