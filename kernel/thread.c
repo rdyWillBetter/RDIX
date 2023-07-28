@@ -64,6 +64,8 @@ void __init(){
 #include <rdix/xhci.h>
 extern xhc_t* xhc;
 extern u64 *debug_pba;
+extern general_usb_dev_t *test_dev;
+void get_report(general_usb_dev_t *dev, void *buf, u32 bsize);
 void __usb_test(){
     asm volatile("sti");
     int_reg_set *int_set = (int_reg_set *)((u32)xhc->run_base + 0x20);
@@ -75,13 +77,26 @@ void __usb_test(){
     }
  */
     while (true){
+        while(test_dev == NULL);
+        //test_dev->ctrl_dev->doorbell[test_dev->slot_id] = 3;
+
+        u32 *device_context = ((u64 *)test_dev->ctrl_dev->op_base[DCBAAP])[test_dev->slot_id];
+        //mdebug((u32)device_context + 32 * 3, 16);
+
+        u32 *tb_base = test_dev->ep[2].ring->trb;
+
+        void *buf = malloc(8);
+        printk("xx\n");
+        get_report(test_dev, buf, 8);
+        mdebug(buf, 8);
+        //printk("=====================================\n");    
         
         //printk("int_set[0].ERDP_Lo = %x\n", int_set[0].ERDP_Lo);
         //printk("IMAN_%x| ", int_set[0].IMAN);
         
         //printk("ERDP_Lo_%x |IMAN_%x| EHB_%x\n", int_set[0].ERDP_Lo, int_set[0].IMAN, int_set[0].ERDP_Lo & 0x3f);
         //printk("EHB_%x\n", int_set[0].ERDP_Lo & 0xf);
-       /*  for (int i = 0; i < 7; ++i){
+        /* for (int i = 0; i < 7; ++i){
             printk("\033[0;33;40]p%d\033[0]_%x| ", i,xhc->op_base[0x100 + 4 * i]);
         } */
 
@@ -94,7 +109,7 @@ void __usb_test(){
         //int_set[0].ERDP_Lo = (u32)data | 8;
         //int_set[0].ERDP_Hi = 0;
         //while (true);
-        //sleep(3000);
+        sleep(3000);
     }
 }
 

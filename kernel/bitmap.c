@@ -54,7 +54,7 @@ int bitmap_scan(bitmap_t *map, u32 count){
     u32 start_idx = 0;
     u32 local_count = 0;
 
-    while (local_count + start_idx < map->length){
+    while (local_count + start_idx < map->length * 8){
         if (bitmap_test(map, start_idx + local_count + map->offset)){
             start_idx += local_count + 1;
             local_count = 0;

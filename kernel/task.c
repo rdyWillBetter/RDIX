@@ -95,10 +95,11 @@ char *task_name(){
     return ((TCB_t *)running_task->owner)->name;
 }
 
-void kernel_thread_kill(ListNode_t *th){
+void kernel_thread_exit(ListNode_t *th, u32 status){
     th = th ? th : current_task();
 
     TCB_t *task = (TCB_t *)th->owner;
+    task->status = status;
 
     /* 防竞态 */
     bool IF_stat = get_IF();
@@ -117,15 +118,15 @@ void kernel_thread_kill(ListNode_t *th){
         remove_node(th);
         
     list_push(died_list, th);
-
     task->state = TASK_DIED;
 
     /* 唤醒父进程 */
-    /* TCB_t *parent = (TCB_t *)task_bucket[task->ppid]->owner;
-    if (parent->state == TASK_WAITING && 
+    TCB_t *parent = (TCB_t *)task_bucket[task->ppid]->owner;
+    if (parent->state == TASK_WAITING &&
         (parent->waitpid == -1 || parent->waitpid == task->pid)){
         unblock(task_bucket[task->ppid]);
-    } */
+    }
+
     if (th == running_task)
         schedule();
 
@@ -302,8 +303,8 @@ void user_task_create(user_target_t target, const char *name, u32 priority){
 }
 
 /* 开启内核线程进行调试的时候要手动开中断，手动开中断！ */
-void kernel_task_create(user_target_t target, const char *name, u32 priority){
-    task_create(target, NULL, name, priority, USER_UID);
+ListNode_t *kernel_task_create(user_target_t target, const char *name, u32 priority){
+    return task_create(target, NULL, name, priority, USER_UID);
 }
 
 pid_t sys_getpid(){
@@ -389,10 +390,12 @@ void sys_exit(int status){
 
     free_kpage((void *)task->vmap->start, 1);
     free(task->vmap);
+    task->vmap = NULL;
 
     iput(task->i_pwd);
     iput(task->i_root);
     free(task->pwd);
+    task->pwd = NULL;
 
     free_pde();//*************
 
@@ -441,7 +444,7 @@ pid_t sys_waitpid(pid_t pid, int32 *status)
             continue;
 
         if (child->state == TASK_DIED)
-            goto rollback;
+            goto freeTask;
 
         has_child = true;
         break;
@@ -450,13 +453,13 @@ pid_t sys_waitpid(pid_t pid, int32 *status)
     if (has_child){
         task->waitpid = pid;
         block(block_list, NULL, TASK_WAITING);
-        goto rollback;
+        goto freeTask;
     }
 
     /* 释放失败 */
     return -1;
 
-rollback:
+freeTask:
     task_bucket[child->pid] = NULL;
 
     *status = child->status;
@@ -552,7 +555,9 @@ void __keyboard();
 void __disk_test();
 void __disk_test2();
 void __usb_test();
+void usb_device_enumeration();
 
+extern ListNode_t *dev_enum_task;
 void task_init(){
     memset(task_bucket, 0, sizeof(task_bucket));
 
@@ -566,8 +571,9 @@ void task_init(){
     /* 内核线程在开启时要手动开中断！手动开中断！手动开中断！重要的事情说三遍 */
     /* 不然容易产生全局 bug */
     kernel_task_create(__idle, "idle", 1);
-    kernel_task_create(__usb_test, "test", 3);
+    //kernel_task_create(__usb_test, "test", 3);
     user_task_create(__init, "init", 3);
+    dev_enum_task = kernel_task_create(usb_device_enumeration, "usb_enum", 3);
     //kernel_task_create(__keyboard, "keyboard", 2);
     //kernel_task_create(__disk_test, "test", 2);
     //kernel_task_create(__disk_test2, "test", 2);

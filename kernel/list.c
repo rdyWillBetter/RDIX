@@ -119,6 +119,17 @@ ListNode_t *list_popback(List_t *list){
     return node;
 }
 
+ListNode_t *search_node(List_t * list, u32 value){
+    ListNode_t *ans = list->end.next;
+
+    while (ans != &list->end){
+        if (ans->value == value)
+            return ans;
+    }
+
+    return NULL;
+}
+
 /* 按 value 值的大小进行插入排序 */
 /* 不能保证链表插入前的顺序，如果该链表本身就是乱的，insert 后还是乱序
  * cmp 为排序函数 */

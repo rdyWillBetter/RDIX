@@ -107,8 +107,8 @@ void weakup();
 void user_task_create(user_target_t target, const char *name, u32 priority);
 pid_t sys_waitpid(pid_t pid, int32 *status);
 
-void kernel_task_create(user_target_t target, const char *name, u32 priority);
+ListNode_t *kernel_task_create(user_target_t target, const char *name, u32 priority);
 void user_task_create(user_target_t target, const char *name, u32 priority);
-void kernel_thread_kill(ListNode_t *th);
+void kernel_thread_exit(ListNode_t *th, u32 status);
 
 #endif

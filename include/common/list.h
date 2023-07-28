@@ -3,8 +3,6 @@
 
 #include <common/type.h>
 
-#define INFINTY 0xffffffff
-
 struct List;
 
 typedef struct List_Node{
@@ -33,6 +31,7 @@ void list_pushback(List_t *list, ListNode_t *node);
 ListNode_t *list_popback(List_t *list);
 void list_insert(List_t *list, ListNode_t *node, Cmp_t cmp);
 void remove_node(ListNode_t *node);
+ListNode_t *search_node(List_t * list, u32 value);
 
 bool less(u32, u32);
 bool greater(u32, u32);

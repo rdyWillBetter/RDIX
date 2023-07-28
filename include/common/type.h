@@ -8,6 +8,7 @@
 #define bool _Bool
 #define NULL ((void *)0)
 #define EOF -1
+#define INFINTY 0xffffffff
 
 #define true 1
 #define false 0

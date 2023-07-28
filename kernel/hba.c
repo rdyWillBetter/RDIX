@@ -34,10 +34,11 @@ bool probe_hba(){
     /* 在 PCI 设备树中查找 hba 设备 */
     hba->dev_info = get_device_info(HBA_CC);
 
-    /* 设备不存在 */
+    /* 设备不存在 hba->dev_info == NULL*/
     if (hba->dev_info == NULL){
         printk(HBA_WARNING_INFO "no hba device!\n");
         free(hba);
+        hba = NULL;
         return false;
     }
 
@@ -207,6 +208,7 @@ hba_dev_t* new_hba_device(hba_port_t *port, u8 spd){
     prase_deviceinfo(dev, dev->data);
 
     free(dev->data);
+    dev->data = NULL;
 
     return dev;
 }
@@ -381,24 +383,19 @@ void __timer(){
     /* 超时计时器时长 */
     sleep(1000);
 
-    port->last_status = GENERAL_ERROR;
-
     bool st = get_and_disable_IF();
-
-    /* 中断迟迟不来，计时结束后需要通过 timer 来解除传输进程阻塞 */
-    unblock(port->sending);
 
     /* 传输失败后要进行复位处理 */
     port->sending = NULL;
 
-    /* kernel_thread_kill 不会去解除 waitpid 的阻塞，所里这里要关中断
+    /* kernel_thread_exit 不会去解除 waitpid 的阻塞，所里这里要关中断
      * 防止父进程先一步 waitpid */
-    kernel_thread_kill(NULL);
+    kernel_thread_exit(NULL, 1);
 
     set_IF(st);
 }
 
-void sata_sending_wait(hba_port_t *port, slot_num slot){
+static int sata_sending_wait(hba_port_t *port, slot_num slot){
     assert(port->sending == NULL);
 
     bool IF_stat = get_IF();
@@ -415,12 +412,13 @@ void sata_sending_wait(hba_port_t *port, slot_num slot){
     /* 开启超时计时器 */
     port->timer = task_create(__timer, port, "timer", 3, KERNEL_UID);
 
-    block(NULL, NULL, TASK_BLOCKED);
-
     int32 *tmp;
+
     assert(sys_waitpid(((TCB_t*)port->timer->owner)->pid, &tmp) != -1);
 
     set_IF(IF_stat);
+
+    return tmp;
 }
 
 send_status_t try_send_cmd(hba_dev_t *dev, slot_num slot){
@@ -437,9 +435,10 @@ send_status_t try_send_cmd(hba_dev_t *dev, slot_num slot){
     if (current_task() && *(u32 *)dev->sata_serial != 0x30304D51){  // 'QM00'
         sata_busy_wait(port);
 
-        port->last_status = GENERAL_ERROR;
-
-        sata_sending_wait(port, slot);
+        if (sata_sending_wait(port, slot) == 0)
+            port->last_status = SUCCESSFUL;
+        else
+            port->last_status = GENERAL_ERROR;
 
         return port->last_status;
     }
@@ -505,16 +504,14 @@ static void hba_handler(u32 int_num){
     /* 用于测试中断未到的情况 */
     //goto hba_hander_END;
 
-    port->last_status = SUCCESSFUL;
-
-    unblock(port->sending);
+    /* 必须要在这里清空，因为不知道是哪个任务先执行 */
     port->sending = NULL;
 
     if (!list_isempty(port->waiting_list))
         unblock(port->waiting_list->end.next);
 
     if (port->timer)
-        kernel_thread_kill(port->timer);
+        kernel_thread_exit(port->timer, 0);
 
 hba_hander_END:
     /* 清空端口中断状态寄存器，如果不清空，推出中断后 hba 会立马发出一个一模一样的中断，

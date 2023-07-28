@@ -50,13 +50,14 @@ void kernel_init(u32 magic, u32 info){
     syscall_init();
 
     /* pci 设备的初始化可以做一个统一 */
-    hba_init();
+    //hba_init();
     xhc_init();
 
     //buffer_init();
     //minix_init();
     /* 初始化完成后再启用 PCI 设备的总中断，开启总中断后就会积累中断 */
-    hba->io_base[REG_IDX(HBA_REG_GHC)] |= HBA_GHC_IE;
+    //hba->io_base[REG_IDX(HBA_REG_GHC)] |= HBA_GHC_IE;
+    // todo: 如果不存在 hba 设备，这里就会发生错误
     /* 开启外中断后才会进行调度 */
     set_IF(true);
 
